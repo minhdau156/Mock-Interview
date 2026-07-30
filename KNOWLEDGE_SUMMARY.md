@@ -1,6 +1,6 @@
 # Mock Interview — Knowledge Summary
 
-**Covers sessions:** 2026-07-04, 07-05, 07-06, 07-08, 07-10, 07-14, 07-16 (7 sessions, 35 questions)
+**Covers sessions:** 2026-07-04, 07-05, 07-06, 07-08, 07-10, 07-14, 07-16, 07-29 (8 sessions, 40 questions)
 **Role target:** Junior Backend Developer (Java/Spring Boot)
 
 This is a study reference, not just a log. Each category below gives the full mechanism — not only what was missed in a session, but the concept in enough depth to explain it cold in the real interview, with code where it clarifies the point.
@@ -18,8 +18,9 @@ This is a study reference, not just a log. Each category below gives the full me
 | 07-10 | 5.0/10 | Web/Frontend, REST API, OOP/LLD, System Design, Concurrency |
 | 07-14 | 6.8/10 | Concurrency, System Design, OOP/LLD, REST API, Web/Frontend |
 | 07-16 | 5.2/10 | Git Tooling, Core Java, OOP/LLD, Databases, Spring/JPA |
+| 07-29 | 4.6/10 | Core Java, Git Tooling, System Design, Web/Frontend, Testing/Debugging |
 
-Trend is upward but noisy (4.0 → 6.8 with dips) — scores depend heavily on which specific angle a topic is tested from, not just topic familiarity. Best sessions (07-06, 07-14) both landed a clean 8/10 on **concurrency/race-condition tracing** and handled **CORS/system design** reasonably. Weakest sessions (07-04, 07-05) struggled most with **debugging methodology** and **request-lifecycle/exception fundamentals**.
+Trend is upward but noisy (4.0 → 6.8 with dips) — scores depend heavily on which specific angle a topic is tested from, not just topic familiarity. Best sessions (07-06, 07-14) both landed a clean 8/10 on **concurrency/race-condition tracing** and handled **CORS/system design** reasonably. Weakest sessions (07-04, 07-05) struggled most with **debugging methodology** and **request-lifecycle/exception fundamentals**. 07-29 was the first session to deliberately target sub-topics *not yet documented here* rather than seed-randomized picks — the dip to 4.6 reflects fresh, previously-untested gaps (merge conflict mechanics, mocking anti-patterns) surfacing for the first time, not regression on known material.
 
 ---
 
@@ -32,6 +33,7 @@ These aren't just gaps — they were stated as fact and are incorrect. Fix these
 - **A `UNIQUE` constraint *does* prevent duplicate-insert races.** (07-16, Q4) Stated the opposite — that duplicates could occur "although we use UNIQUE." In reality, UNIQUE is enforced atomically by the DB regardless of what the app checked first; the second concurrent `INSERT` gets rejected. Don't reach for locking here — there's no row to lock yet at insert time. This directly contradicts the *correct* answer given in 07-08 Q2, where PRIMARY KEY vs UNIQUE was reasoned about accurately — the gap re-emerged under a race-condition framing.
 - **`ERR_CONNECTION_REFUSED` is not a latency symptom.** (07-04, Q3) It means the TCP connection was actively rejected (nothing listening, server down, firewall) — a fundamentally different failure mode from a slow/timeout response.
 - **Applying a function to an indexed column defeats the index** (`WHERE UPPER(email) = ...`) — the DB indexed raw values, not transformed ones, so it forces a full scan. (07-05, Q1) Fix: normalize at write time (store lowercase) or use a functional index.
+- **Resolving a merge conflict is not "choose one side."** (07-29, Q2) Framed conflict resolution as discussing with a teammate to pick between two competing versions. In reality, the two changes usually both need to survive — e.g. a teammate's refactor of a method's structure *and* your unrelated addition inside it. Picking one side wholesale is exactly how you silently discard real work. The correct process: read the `<<<<<<<`/`=======`/`>>>>>>>` markers, manually combine both changes into one correct version, test it, then `git add`/`commit` (or `rebase --continue`).
 
 ---
 
@@ -112,10 +114,23 @@ Instant sendAt = local9am.toInstant();                    // safe to store/compa
 ```
 Rule of thumb: whenever `LocalDateTime.now()` touches anything cross-timezone, ask "whose 9am is this?" If the answer depends on who's reading it, you need a `ZoneId` in the picture — a UTC-safe type (`Instant`) alone doesn't solve "the right local time for this user," only "a consistent global timestamp." (Independently re-derived in [answer.md](answer.md) as well.)
 
+**`hashCode`/`equals` contract — why overriding one without the other silently breaks `HashSet`/`HashMap`.** (07-29, Q1 — reached only after a hint)
+```java
+class Customer {
+    Long customerId;
+    @Override
+    public boolean equals(Object o) {              // overridden: compares by customerId
+        if (!(o instanceof Customer c)) return false;
+        return Objects.equals(customerId, c.customerId);
+    }
+    // hashCode() NOT overridden — still Object's default (identity-based)
+}
+```
+`HashSet.add()` does **not** compare the incoming object against every existing element with `.equals()`. It first calls `hashCode()` to compute a **bucket index** (`hash % numBuckets`), and only compares `.equals()` against whatever is already sitting in that *same* bucket. Two `Customer` instances with the same `customerId`, loaded from two different feeds, are two different objects in memory — with the default identity-based `hashCode()`, they get two different hash codes and (almost certainly) land in different buckets, so `.equals()` — which correctly says they're the same customer — never even gets called. The contract, stated explicitly: *"if two objects are equal via `.equals()`, they must return the same `hashCode()`."* Reflex: any time you override `equals()`, generate `hashCode()` in the same action (most IDEs do both together) — never one alone.
+
 **Also in the topic pool, not yet directly tested — review before the interview:**
-- `hashCode`/`equals` contract: equal objects must have equal hash codes; violating this silently breaks `HashMap`/`HashSet` lookups.
 - String immutability and why it makes `String` safe as a `HashMap` key.
-- `HashMap` internals: array of buckets, hash → bucket index, collision handling (linked list / red-black tree since Java 8 once a bucket gets large), resizing/rehashing on load factor.
+- `HashMap` internals: collision handling (linked list / red-black tree since Java 8 once a bucket gets large), resizing/rehashing on load factor.
 - Binary search preconditions: the collection must already be sorted.
 
 ---
@@ -412,6 +427,24 @@ Fits short, high-conflict operations (e.g. last-seat booking) where losing the c
 4. **Form an explicit hypothesis for *why* it's intermittent** before reaching for a tool — don't jump straight to "let's add logging" with no theory. Candidate hypotheses worth naming out loud for a "sometimes" bug: a non-idempotent endpoint being hit twice (double-submit/double-charge), an exception being silently swallowed inside a loop (job "skips" some items with no trace), or a job running on two instances/threads simultaneously.
 5. **Binary-search debugging** once you have a hypothesis and can reproduce: narrow down *where* in the flow the bug is introduced by checking state at successively narrower points, rather than reading the whole flow top to bottom hoping to spot it.
 
+**Mocking anti-pattern: over-mocking / "testing the mock, not the code."** (07-29, Q5 — needed a hint and a full explanation before the concept could be restated; weakest score of that session)
+```java
+@Test
+void appliesDiscount() {
+    ProductRepository mockRepo = mock(ProductRepository.class);
+    PricingEngine mockPricing = mock(PricingEngine.class);
+    DiscountCalculator mockCalculator = mock(DiscountCalculator.class);
+    when(mockRepo.findById(1L)).thenReturn(product);
+    when(mockPricing.getBasePrice(product)).thenReturn(100.0);
+    when(mockCalculator.calculate(100.0, 0.1)).thenReturn(90.0);   // stubbed to return 90.0
+
+    DiscountService service = new DiscountService(mockRepo, mockPricing, mockCalculator);
+    double result = service.applyDiscount(1L, 0.1);
+    assertEquals(90.0, result);   // ...and the assertion checks for exactly 90.0
+}
+```
+Every collaborator `DiscountService` depends on is mocked, and every mock is stubbed to return exactly the value the final assertion checks for. The test isn't verifying that `DiscountService` computed anything — it's verifying that Mockito faithfully returned the `90.0` it was told to return three lines earlier. The tell: if you deleted `DiscountService`'s real implementation and replaced it with `return 90.0;` directly, this exact test would still pass — a test that survives deleting the logic it's meant to verify isn't testing that logic. Two ways to fix it: (a) add `verify(mockPricing).getBasePrice(product)` / `verify(mockCalculator).calculate(100.0, 0.1)` to confirm the *orchestration* — that the service calls its collaborators with the right arguments in the right order — or (b) recognize that mocking every single dependency is itself the smell, and test the real discount math against a real (or minimally faked) `DiscountCalculator` instead of stubbing the answer directly. Reflex: if every dependency is mocked *and* the stub's return value matches the assertion, ask "what real behavior is left to fail if I break something?" — if none, the test isn't testing that class.
+
 **Also in the topic pool, worth reviewing:** unit vs integration tests (what each actually catches — the testing pyramid); arrange/act/assert structure and one-behavior-per-test naming; what makes a test flaky and why a flaky test is worse than no test (erodes trust in the whole suite); reading a stack trace to find the root cause among framework noise; test-driving a bug fix by writing the failing test first.
 
 ---
@@ -477,7 +510,20 @@ function OrderList() {
 ```
 Practice naming the `useState` variables first, then which components consume them — the UI-component answer alone (spinner + error component) skips the actual state machinery being tested.
 
-**Also worth reviewing:** SQL injection and parameterized queries; never trusting client-side-only validation (hiding a button isn't security — always re-validate server-side); cookies vs. sessions vs. tokens for keeping login state.
+**SQL injection — correctly named, with a genuinely concrete attack, but the fix needs more precision.** (07-29, Q4 — hint used)
+```java
+// Vulnerable: string concatenation lets user input become part of the SQL text itself
+String query = "SELECT * FROM products WHERE name = '" + request.getParameter("name") + "'";
+
+// Fixed: PreparedStatement — structure and data are sent to the DB separately
+String query = "SELECT * FROM products WHERE name = ?";
+PreparedStatement stmt = connection.prepareStatement(query);
+stmt.setString(1, request.getParameter("name"));
+ResultSet rs = stmt.executeQuery();
+```
+Correctly identified that a malicious `name` value could break out of the string literal and inject additional SQL — including a concrete `JOIN`-based attack to exfiltrate data from unrelated tables (e.g. `orders`/`users`), not just a generic "it's insecure." The piece to add: **why** `PreparedStatement` fixes it — the query structure is compiled by the database *before* the value is bound, so user input is never re-parsed as SQL syntax, no matter what characters (`'`, `;`, `--`) it contains. Also worth stating explicitly: server-side input validation is fine as defense-in-depth but is **not** a substitute for parameterization — blacklist-style validation is routinely bypassed; the prepared statement is what actually closes the hole.
+
+**Also worth reviewing:** never trusting client-side-only validation (hiding a button isn't security — always re-validate server-side); cookies vs. sessions vs. tokens for keeping login state.
 
 ---
 
@@ -498,7 +544,16 @@ The strong, concrete example given was inventory overselling under a too-long TT
 
 **CRUD schema design — good instinct, one consistent process gap:** walk every planned endpoint against the schema before finalizing it — this was missed twice (no `completed` boolean for a "mark complete" API; no list/search endpoint at all in a separate session). Checklist to run every time: **list, get-one, create, update, delete** — does the schema have what each of those five needs to read or write?
 
-**Also in the topic pool, worth reviewing:** vertical vs horizontal scaling and what breaks specifically when you go from one instance to two (in-memory session state, in-memory counters, anything not externalized); why a load balancer needs sessions to be either sticky or stored externally (Redis/DB) once there's more than one instance; sync (direct call) vs async (message queue) — when the caller needs to wait for a result vs when "eventually" is fine.
+**Sync (direct call) vs async (message queue) — the recurring confusion is "non-blocking" vs "decoupled."** (07-29, Q3)
+```
+Direct call (sync OR async style)          Message queue
+caller ---request---> callee               caller --publish("OrderPlaced")--> queue ---> consumer ---> email service
+caller still needs callee's result          caller returns immediately, never waits on
+or has to handle its failure right now      the consumer or the downstream service at all
+```
+`async/await` (JS) or a non-blocking `HttpClient` call (Java) is still a **direct call** to the downstream service — it just doesn't block the calling *thread*. The caller is still coupled to that service's availability: if it's down or slow, that failure has to be handled right there in the request path. A **message queue** (RabbitMQ/Kafka/SQS) is a stronger, different kind of decoupling — the caller publishes an event and returns immediately, and a separate consumer processes it whenever it can, even if the downstream service is down for the next 10 minutes. It also gives retries for free on transient failures, instead of a fire-and-forget async call silently swallowing them. Decision rule: **"Does the caller need the result before it can respond to the user?"** Payment → yes, must be a direct call the endpoint waits on. Confirmation email → no, perfect candidate for a queue.
+
+**Also in the topic pool, worth reviewing:** vertical vs horizontal scaling and what breaks specifically when you go from one instance to two (in-memory session state, in-memory counters, anything not externalized); why a load balancer needs sessions to be either sticky or stored externally (Redis/DB) once there's more than one instance.
 
 ---
 
@@ -531,7 +586,17 @@ mvn dependency:tree            # prints the resolved graph; flags dropped versio
 ```
 Maven's resolution rule is **nearest-wins**: the dependency declaration closest to your own project in the tree wins, *regardless of which version is actually newer* — a transitive dependency three levels deep can silently lose to an older version declared one level up. Fixes: pin the version explicitly in your own `pom.xml` (a direct declaration always wins over a transitive one), use `<dependencyManagement>` to centralize versions across a multi-module project, or `<exclude>` the unwanted transitive version from whichever dependency is pulling it in.
 
-**Also in the topic pool, worth reviewing:** merge vs rebase at a basic level, and resolving a conflict without silently discarding someone else's change; what a reviewer is actually looking for in a PR, and how to respond to review feedback without getting defensive; environment variables and why "works on my machine" happens (implicit local state — installed tool versions, env vars, local config — that isn't captured anywhere in the repo).
+**Resolving a merge conflict — "combine both," not "pick one side."** (07-29, Q2 — see also the Critical Misconceptions entry above)
+```
+<<<<<<< HEAD
+// your current branch's version of the method
+=======
+// incoming version from main (teammate's refactor)
+>>>>>>> main
+```
+The instinct to reach for first was "discuss with the teammate and choose between the two versions" — but that's usually the wrong frame. If your teammate restructured the method and you separately added a new field or behavior inside it, the correct resolution has **both** — the new structure *and* your addition — not one or the other; picking a side wholesale is how real work quietly disappears. Full process: read both blocks inside the markers, manually edit them into one correct combined version, delete the markers, **test/run it** (a syntactically clean merge can still be semantically wrong), then `git add <file>` and `git commit` (merge) or `git rebase --continue` (rebase). An IDE's 3-way merge view (yours/theirs/result) makes "combine both" far more obvious than eyeballing raw markers in a plain editor. Before even messaging a teammate, `git log -p <file>` or `git blame` on the conflicting lines often shows exactly what each side changed and why.
+
+**Also in the topic pool, worth reviewing:** merge vs rebase at a basic level; what a reviewer is actually looking for in a PR, and how to respond to review feedback without getting defensive; environment variables and why "works on my machine" happens (implicit local state — installed tool versions, env vars, local config — that isn't captured anywhere in the repo).
 
 ---
 
@@ -540,12 +605,17 @@ Maven's resolution rule is **nearest-wins**: the dependency declaration closest 
 Ranked by (a) how wrong the current understanding is, and (b) how likely it is to come up:
 
 1. **`@Transactional` semantics** — rollback only on unchecked exceptions/`Error` by default; does not coordinate across separate transactions/requests. (Confidently wrong twice — highest priority.)
-2. **Telling apart the three concurrency problem shapes** and their distinct fixes: in-process race → atomics/locks; cross-transaction lost update → optimistic/pessimistic locking; duplicate-insert race → `UNIQUE` constraint (no locking needed).
-3. **Debugging methodology for intermittent bugs**: reproduce first, understand why a debugger can distort timing bugs, use structured logging with correlation IDs — weakest category by average score across sessions.
-4. **Request lifecycle fundamentals** (DNS → TCP → TLS → HTTP) — scored 2/10 with zero partial credit, a very standard interview question.
-5. **Precise design-pattern definitions** (Facade vs. God class; Strategy vs. plain polymorphism) — the *judgment* of over-engineering is already solid; the *vocabulary* is not.
-6. **Maven/Gradle dependency conflict diagnostics** (`dependency:tree`, nearest-wins) — a concrete, practical gap.
-7. **Idempotency terminology** — use the word explicitly and know the PUT-safe / POST-risky default.
+2. **Merge conflict resolution** — resolving means combining both changes into one correct version, not discussing with a teammate to pick one side wholesale. (07-29 — a fresh misconception on a very common daily task.)
+3. **Mocking anti-patterns (over-mocking)** — recognize when every collaborator is mocked and the assertion just checks the stub's own return value; know to verify orchestration (`verify()`) or stop mocking everything. (07-29 — weakest score of that session, needed the most support.)
+4. **Telling apart the three concurrency problem shapes** and their distinct fixes: in-process race → atomics/locks; cross-transaction lost update → optimistic/pessimistic locking; duplicate-insert race → `UNIQUE` constraint (no locking needed).
+5. **Sync vs async / message queue decoupling** — a non-blocking `async/await` call is still a direct call coupled to the downstream service's availability; a message queue is a stronger, different kind of decoupling. (07-29.)
+6. **Debugging methodology for intermittent bugs**: reproduce first, understand why a debugger can distort timing bugs, use structured logging with correlation IDs — weakest category by average score across sessions.
+7. **Request lifecycle fundamentals** (DNS → TCP → TLS → HTTP) — scored 2/10 with zero partial credit, a very standard interview question.
+8. **Precise design-pattern definitions** (Facade vs. God class; Strategy vs. plain polymorphism) — the *judgment* of over-engineering is already solid; the *vocabulary* is not.
+9. **`hashCode`/`equals` contract mechanism** — the bucket-index lookup in `HashSet`/`HashMap`; conclusion was right after a hint, mechanism needs to be stated unprompted. (07-29.)
+10. **Maven/Gradle dependency conflict diagnostics** (`dependency:tree`, nearest-wins) — a concrete, practical gap.
+11. **Idempotency terminology** — use the word explicitly and know the PUT-safe / POST-risky default.
+12. **SQL injection fix precision** — know *why* `PreparedStatement` works (structure/data sent separately) and that validation isn't a substitute for it; the vulnerability and a concrete attack were already identified correctly. (07-29 — lower priority, mostly a polish item.)
 
 ## 5. Consistent Strengths (keep doing these)
 
@@ -554,3 +624,4 @@ Ranked by (a) how wrong the current understanding is, and (b) how likely it is t
 - Good YAGNI/over-engineering instincts on design patterns.
 - Willingness to reason out loud, ask clarifying questions, and give a best guess under uncertainty rather than freezing (explicitly praised in multiple session summaries).
 - Commit-hygiene instincts have measurably improved and stuck across sessions — evidence that repeated practice on a topic here is translating into consistent recall.
+- Giving concrete, non-trivial attack/impact scenarios instead of generic answers — e.g. the SQL injection answer named a specific `JOIN`-based data-exfiltration exploit rather than just "it's insecure" (07-29).
