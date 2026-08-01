@@ -1,6 +1,6 @@
 # Mock Interview — Knowledge Summary
 
-**Covers sessions:** 2026-07-04, 07-05, 07-06, 07-08, 07-10, 07-14, 07-16, 07-29 (8 sessions, 40 questions)
+**Covers sessions:** 2026-07-04, 07-05, 07-06, 07-08, 07-10, 07-14, 07-16, 07-29, 08-01 (9 sessions, 45 questions)
 **Role target:** Junior Backend Developer (Java/Spring Boot)
 
 This is a study reference, not just a log. Each category below gives the full mechanism — not only what was missed in a session, but the concept in enough depth to explain it cold in the real interview, with code where it clarifies the point.
@@ -19,8 +19,9 @@ This is a study reference, not just a log. Each category below gives the full me
 | 07-14 | 6.8/10 | Concurrency, System Design, OOP/LLD, REST API, Web/Frontend |
 | 07-16 | 5.2/10 | Git Tooling, Core Java, OOP/LLD, Databases, Spring/JPA |
 | 07-29 | 4.6/10 | Core Java, Git Tooling, System Design, Web/Frontend, Testing/Debugging |
+| 08-01 | 6.0/10 | Concurrency, Databases, Git Tooling, Testing/Debugging, Spring/JPA |
 
-Trend is upward but noisy (4.0 → 6.8 with dips) — scores depend heavily on which specific angle a topic is tested from, not just topic familiarity. Best sessions (07-06, 07-14) both landed a clean 8/10 on **concurrency/race-condition tracing** and handled **CORS/system design** reasonably. Weakest sessions (07-04, 07-05) struggled most with **debugging methodology** and **request-lifecycle/exception fundamentals**. 07-29 was the first session to deliberately target sub-topics *not yet documented here* rather than seed-randomized picks — the dip to 4.6 reflects fresh, previously-untested gaps (merge conflict mechanics, mocking anti-patterns) surfacing for the first time, not regression on known material.
+Trend is upward but noisy (4.0 → 6.8 with dips) — scores depend heavily on which specific angle a topic is tested from, not just topic familiarity. Best sessions (07-06, 07-14) both landed a clean 8/10 on **concurrency/race-condition tracing** and handled **CORS/system design** reasonably. Weakest sessions (07-04, 07-05) struggled most with **debugging methodology** and **request-lifecycle/exception fundamentals**. 07-29 was the first session to deliberately target sub-topics *not yet documented here* rather than seed-randomized picks — the dip to 4.6 reflects fresh, previously-untested gaps (merge conflict mechanics, mocking anti-patterns) surfacing for the first time, not regression on known material. 08-01 continued that deliberate-gap-targeting approach and landed 6.0/10 — clean, correct-on-first-try answers on composite-index reasoning and N+1 recognition, but exposed a fresh and fairly deep gap in test-driving a bug fix, plus a partial gap on why in-process locks don't coordinate across app instances.
 
 ---
 
@@ -34,6 +35,7 @@ These aren't just gaps — they were stated as fact and are incorrect. Fix these
 - **`ERR_CONNECTION_REFUSED` is not a latency symptom.** (07-04, Q3) It means the TCP connection was actively rejected (nothing listening, server down, firewall) — a fundamentally different failure mode from a slow/timeout response.
 - **Applying a function to an indexed column defeats the index** (`WHERE UPPER(email) = ...`) — the DB indexed raw values, not transformed ones, so it forces a full scan. (07-05, Q1) Fix: normalize at write time (store lowercase) or use a functional index.
 - **Resolving a merge conflict is not "choose one side."** (07-29, Q2) Framed conflict resolution as discussing with a teammate to pick between two competing versions. In reality, the two changes usually both need to survive — e.g. a teammate's refactor of a method's structure *and* your unrelated addition inside it. Picking one side wholesale is exactly how you silently discard real work. The correct process: read the `<<<<<<<`/`=======`/`>>>>>>>` markers, manually combine both changes into one correct version, test it, then `git add`/`commit` (or `rebase --continue`).
+- **"Run the existing tests" is not the same as test-driving a bug fix.** (08-01, Q4) Asked what to do before fixing a reported bug, answered that checking/running the existing tests was enough and "we don't need to rewrite the test." But if a bug reached production, there is almost certainly no existing test covering that exact case — otherwise CI would have caught it before it shipped. The correct first step is to **write a new test that encodes the exact bug**, confirm it **fails** against current code (proof the bug is genuinely reproduced), then fix the code and confirm it **passes** (proof the fix works) — and that test then stays in the suite as a permanent regression guard. Needed two hints and still didn't reach this independently.
 
 ---
 
@@ -230,8 +232,23 @@ A B-tree index keeps *raw* column values in sorted order so lookups/range scans 
 
 **Habit to build**: run `EXPLAIN` (or `EXPLAIN ANALYZE`) before guessing whether a slow query is hitting the index — look for `Seq Scan`/`Full Table Scan` vs `Index Scan`/`Index Only Scan` in the plan.
 
+**Composite indexes and the leftmost-prefix rule — correctly reasoned from first principles.** (08-01, Q2, scored 8/10)
+```sql
+CREATE INDEX idx_orders_customer_status_created ON orders (customer_id, status, created_at);
+
+-- USES the index — customer_id is the leading (leftmost) column
+SELECT * FROM orders WHERE customer_id = 42 AND status = 'PENDING';
+
+-- USES the index too — still a valid prefix (customer_id alone)
+SELECT * FROM orders WHERE customer_id = 42;
+
+-- DOES NOT use the index — status is not the leftmost column, so the
+-- index's sort order (by customer_id first) can't help here. Full scan.
+SELECT * FROM orders WHERE status = 'PENDING';
+```
+A composite index is a single B-tree physically sorted by the **first** column, then by the second column *within* each value of the first, then the third *within* that. A query has to filter on a left-to-right prefix of the indexed columns to benefit — `(a)`, `(a, b)`, or `(a, b, c)` — never `(b)` alone or `(c)` alone, because the tree was never sorted with `b` or `c` as the primary key. Missing piece: naming the rule itself ("leftmost-prefix rule") and stating the write-side trade-off explicitly — every index speeds up matching reads but adds overhead to every `INSERT`/`UPDATE`/`DELETE` on that table, so index choices should be justified by how frequent/important the query actually is, and confirmed with `EXPLAIN` before committing to add one.
+
 **Also in the topic pool, worth reviewing:**
-- Composite indexes and the **leftmost-prefix rule**: an index on `(a, b, c)` can serve queries filtering on `a`, `a+b`, or `a+b+c`, but not on `b` alone.
 - `LIKE '%foo'` (leading wildcard) also defeats a b-tree index, same reason as a function wrapper — the index can't binary-search on a pattern that doesn't anchor at the start.
 - Normalization (1NF–3NF) vs. deliberate denormalization — and being explicit about the write-cost you accept when you denormalize.
 - Soft delete (`deleted_at`/`is_deleted`) vs hard delete, and status field vs. a full status-history table when you need an audit trail.
@@ -291,14 +308,14 @@ public void transferFunds(Account from, Account to, BigDecimal amount) { ... }
 ```
 Memorize as one line: *"`@Transactional` rolls back on unchecked exceptions and `Error`s by default — checked exceptions need `rollbackFor` explicitly. And it only protects atomicity within one method's transaction, never coordination across two separate transactions."*
 
-**N+1 problem (in the topic pool, not yet directly tested — review):**
+**N+1 problem — correctly recognized and fixed on the first try.** (08-01, Q5, scored 8/10)
 ```java
 List<Order> orders = orderRepository.findAll();       // 1 query
 for (Order o : orders) {
     o.getCustomer().getName();                          // N additional queries — one per order,
 }                                                        // because customer is lazily fetched
 ```
-Spot it in logs: one query for the parent list, then N nearly-identical queries for a related entity per row. Fixes: `JOIN FETCH` in a JPQL query, `@EntityGraph`, or batch fetching — all collapse it back down to 1-2 queries.
+Spot it in logs: one query for the parent list, then N nearly-identical queries for a related entity per row — named correctly, and correctly reasoned about DB load compounding under concurrent users. Missing piece: naming **lazy loading** explicitly as the root cause (the `@ManyToOne`/`@OneToMany` association only fires its query when accessed, once per row) — the fix (`JOIN FETCH`) was named correctly, but tying it to *why* the N extra queries happen in the first place is worth stating unprompted. Fixes: `JOIN FETCH` in a JPQL query (the one given), `@EntityGraph`, or batch fetching (`@BatchSize`) — all collapse it back down to 1-2 queries.
 
 **Entity gotchas worth reviewing:** JPA requires a no-args constructor on `@Entity` classes; `equals`/`hashCode` on entities need care (usually base them on the business/natural key or just `id`, and handle the pre-persist `null id` case) to avoid broken behavior in `Set`s/`Map`s before the entity is saved.
 
@@ -412,7 +429,11 @@ COMMIT;                                          -- lock released
 ```
 Fits short, high-conflict operations (e.g. last-seat booking) where losing the conflict is expensive — trades throughput for safety: concurrent requests queue up and wait, which can cause timeouts under heavy load, and introduces deadlock risk if two transactions lock multiple rows in different orders. Keep the transaction short.
 
-**Distributed locking (intro depth, topic pool):** once you have more than one app instance, in-process tools (`synchronized`) stop working entirely — they only coordinate threads within a single JVM. The Redis `SET key value NX PX <ttl>` pattern (set-if-not-exists with an expiry) is the basic idea for a cross-instance lock. And often you don't need a lock at all: a unique constraint, or an atomic `UPDATE ... WHERE version = ?`, already gives you the guarantee without any explicit locking machinery.
+**Distributed locking — partially reasoned, mechanism not yet explicit.** (08-01, Q1, scored 5/10) Given a scenario where a teammate added `synchronized` to fix duplicate order processing, and duplicates kept happening once there were two app instances: correctly identified "multiple servers" as the root symptom, and volunteered idempotency as a fix direction unprompted — but didn't explain *why* `synchronized` specifically fails, and needed a hint to recall what `synchronized` does at all.
+
+The mechanism worth stating explicitly: a `synchronized` lock is tied to an object living inside **one JVM process**. Two app instances are two separate JVMs, each with its own independent copy of that lock object — neither has any visibility into the other's lock. A thread on instance A and a thread on instance B can each acquire "their own" copy of the lock and enter the method at the exact same instant. In-process tools (`synchronized`, `AtomicInteger`) only ever coordinate threads *within a single process* — once there's more than one app instance, they stop working entirely, silently, with no error.
+
+The Redis `SET key value NX PX <ttl>` pattern (set-if-not-exists with an expiry) is the basic idea for a cross-instance lock — Redis (or another shared external store) becomes the one coordinator every instance defers to, instead of each instance holding its own local lock. And often you don't need a lock at all: a unique constraint, or an atomic `UPDATE ... WHERE version = ?`, already gives you the guarantee without any explicit locking machinery — usually the cleaner fix for "the same webhook/request might get delivered twice."
 
 ---
 
@@ -445,7 +466,28 @@ void appliesDiscount() {
 ```
 Every collaborator `DiscountService` depends on is mocked, and every mock is stubbed to return exactly the value the final assertion checks for. The test isn't verifying that `DiscountService` computed anything — it's verifying that Mockito faithfully returned the `90.0` it was told to return three lines earlier. The tell: if you deleted `DiscountService`'s real implementation and replaced it with `return 90.0;` directly, this exact test would still pass — a test that survives deleting the logic it's meant to verify isn't testing that logic. Two ways to fix it: (a) add `verify(mockPricing).getBasePrice(product)` / `verify(mockCalculator).calculate(100.0, 0.1)` to confirm the *orchestration* — that the service calls its collaborators with the right arguments in the right order — or (b) recognize that mocking every single dependency is itself the smell, and test the real discount math against a real (or minimally faked) `DiscountCalculator` instead of stubbing the answer directly. Reflex: if every dependency is mocked *and* the stub's return value matches the assertion, ask "what real behavior is left to fail if I break something?" — if none, the test isn't testing that class.
 
-**Also in the topic pool, worth reviewing:** unit vs integration tests (what each actually catches — the testing pyramid); arrange/act/assert structure and one-behavior-per-test naming; what makes a test flaky and why a flaky test is worse than no test (erodes trust in the whole suite); reading a stack trace to find the root cause among framework noise; test-driving a bug fix by writing the failing test first.
+**Test-driving a bug fix — the weakest score of this batch, and a fresh gap.** (08-01, Q4, scored 3/10 — needed two hints and still didn't land on it)
+
+Given a reported bug (cancelling an already-shipped order still triggers a refund) and asked what to do *before* touching the fix: answered "check/run the existing tests," reasoning that "we don't need to rewrite the test." This misses the actual point — if a bug reached production, there is almost certainly **no existing test** covering that exact case, because if there were, it would have failed in CI before shipping.
+
+The correct sequence:
+```java
+// 1. Write a NEW test that encodes the exact reported bug
+@Test
+void cancelOrder_whenAlreadyShipped_doesNotTriggerRefund() {
+    Order order = anOrderWithStatus(OrderStatus.SHIPPED);
+    orderService.cancel(order.getId());
+    verify(paymentGateway, never()).refund(any());
+}
+// 2. Run it against the CURRENT (buggy) code — it should FAIL.
+//    That failure is proof the real bug is reproduced, not a lookalike.
+// 3. Make the actual fix.
+// 4. Re-run the same test — it should now PASS. Proof the fix works.
+// 5. Keep the test in the suite — it's now a permanent regression guard.
+```
+Why the order matters, stated explicitly: a failing test *before* the fix proves the bug is genuinely reproduced in a repeatable, automated way (not just "I read the code and it looks wrong"); a passing test *after* proves the fix actually addresses it; and the test then catches this exact bug forever if a future refactor reintroduces it — instead of another support ticket months later. This is the single highest-priority testing gap to close before the real interview (see Priority List).
+
+**Also in the topic pool, worth reviewing:** unit vs integration tests (what each actually catches — the testing pyramid); arrange/act/assert structure and one-behavior-per-test naming; what makes a test flaky and why a flaky test is worse than no test (erodes trust in the whole suite); reading a stack trace to find the root cause among framework noise.
 
 ---
 
@@ -596,7 +638,16 @@ Maven's resolution rule is **nearest-wins**: the dependency declaration closest 
 ```
 The instinct to reach for first was "discuss with the teammate and choose between the two versions" — but that's usually the wrong frame. If your teammate restructured the method and you separately added a new field or behavior inside it, the correct resolution has **both** — the new structure *and* your addition — not one or the other; picking a side wholesale is how real work quietly disappears. Full process: read both blocks inside the markers, manually edit them into one correct combined version, delete the markers, **test/run it** (a syntactically clean merge can still be semantically wrong), then `git add <file>` and `git commit` (merge) or `git rebase --continue` (rebase). An IDE's 3-way merge view (yours/theirs/result) makes "combine both" far more obvious than eyeballing raw markers in a plain editor. Before even messaging a teammate, `git log -p <file>` or `git blame` on the conflicting lines often shows exactly what each side changed and why.
 
-**Also in the topic pool, worth reviewing:** merge vs rebase at a basic level; what a reviewer is actually looking for in a PR, and how to respond to review feedback without getting defensive; environment variables and why "works on my machine" happens (implicit local state — installed tool versions, env vars, local config — that isn't captured anywhere in the repo).
+**Environment config across dev/staging/prod — decent instinct, missing the Spring-specific and secrets-specific tools.** (08-01, Q3, scored 6/10)
+
+Given a scenario where a Spring Boot app boots locally but crashes in staging with `Could not resolve placeholder 'DB_PASSWORD'`: correctly proposed splitting config by environment (e.g. `.env`, `.env.staging`, `.env.production`) — good instinct that config shouldn't be one-size-fits-all. Missing pieces:
+- **The actual root cause** wasn't named: something local-only (a `.env` file, an IDE run config, an exported shell variable) supplies `DB_PASSWORD` on the laptop, and it simply was never set up in staging — the bug is implicit local machine state that didn't travel with the app, not "config" in the abstract.
+- **Spring's own mechanism** for non-secret environment differences: profiles — `application-dev.properties` / `application-staging.properties` / `application-prod.properties`, switched via `spring.profiles.active=<profile>`.
+- **For the secret itself**, the stronger production pattern isn't a checked-in `.env.staging` file at all — it's the deployment platform injecting the real value as a runtime environment variable (CI/CD secret store, Kubernetes Secret, AWS Secrets Manager, etc.), so it's never sitting in a file in the repo, even a per-environment one. `.env` files are fine for local dev convenience but must be `.gitignore`'d the moment they hold a real secret — commit a `.env.example` with placeholder keys instead.
+
+Two-lens reflex: "config that differs by environment but isn't secret" → Spring profiles; "actual secrets" → platform-injected env vars / secret manager, never a repo file.
+
+**Also in the topic pool, worth reviewing:** merge vs rebase at a basic level; what a reviewer is actually looking for in a PR, and how to respond to review feedback without getting defensive.
 
 ---
 
@@ -605,17 +656,20 @@ The instinct to reach for first was "discuss with the teammate and choose betwee
 Ranked by (a) how wrong the current understanding is, and (b) how likely it is to come up:
 
 1. **`@Transactional` semantics** — rollback only on unchecked exceptions/`Error` by default; does not coordinate across separate transactions/requests. (Confidently wrong twice — highest priority.)
-2. **Merge conflict resolution** — resolving means combining both changes into one correct version, not discussing with a teammate to pick one side wholesale. (07-29 — a fresh misconception on a very common daily task.)
-3. **Mocking anti-patterns (over-mocking)** — recognize when every collaborator is mocked and the assertion just checks the stub's own return value; know to verify orchestration (`verify()`) or stop mocking everything. (07-29 — weakest score of that session, needed the most support.)
-4. **Telling apart the three concurrency problem shapes** and their distinct fixes: in-process race → atomics/locks; cross-transaction lost update → optimistic/pessimistic locking; duplicate-insert race → `UNIQUE` constraint (no locking needed).
-5. **Sync vs async / message queue decoupling** — a non-blocking `async/await` call is still a direct call coupled to the downstream service's availability; a message queue is a stronger, different kind of decoupling. (07-29.)
-6. **Debugging methodology for intermittent bugs**: reproduce first, understand why a debugger can distort timing bugs, use structured logging with correlation IDs — weakest category by average score across sessions.
-7. **Request lifecycle fundamentals** (DNS → TCP → TLS → HTTP) — scored 2/10 with zero partial credit, a very standard interview question.
-8. **Precise design-pattern definitions** (Facade vs. God class; Strategy vs. plain polymorphism) — the *judgment* of over-engineering is already solid; the *vocabulary* is not.
-9. **`hashCode`/`equals` contract mechanism** — the bucket-index lookup in `HashSet`/`HashMap`; conclusion was right after a hint, mechanism needs to be stated unprompted. (07-29.)
-10. **Maven/Gradle dependency conflict diagnostics** (`dependency:tree`, nearest-wins) — a concrete, practical gap.
-11. **Idempotency terminology** — use the word explicitly and know the PUT-safe / POST-risky default.
-12. **SQL injection fix precision** — know *why* `PreparedStatement` works (structure/data sent separately) and that validation isn't a substitute for it; the vulnerability and a concrete attack were already identified correctly. (07-29 — lower priority, mostly a polish item.)
+2. **Test-driving a bug fix** — before fixing any reported bug, write a new test that encodes it and confirm it fails first; don't rely on "check the existing tests." (08-01 — weakest score of that session, needed two hints and still didn't reach it independently; ties directly into Testing & Debugging being the weakest category overall.)
+3. **Merge conflict resolution** — resolving means combining both changes into one correct version, not discussing with a teammate to pick one side wholesale. (07-29 — a fresh misconception on a very common daily task.)
+4. **Mocking anti-patterns (over-mocking)** — recognize when every collaborator is mocked and the assertion just checks the stub's own return value; know to verify orchestration (`verify()`) or stop mocking everything. (07-29 — weakest score of that session, needed the most support.)
+5. **Telling apart the concurrency problem shapes** and their distinct fixes: in-process race → atomics/locks; **cross-instance duplicate processing → distributed lock or idempotency, not `synchronized`** (which is JVM-local only — added 08-01, partially reasoned but the mechanism wasn't yet explicit); cross-transaction lost update → optimistic/pessimistic locking; duplicate-insert race → `UNIQUE` constraint (no locking needed).
+6. **Sync vs async / message queue decoupling** — a non-blocking `async/await` call is still a direct call coupled to the downstream service's availability; a message queue is a stronger, different kind of decoupling. (07-29.)
+7. **Debugging methodology for intermittent bugs**: reproduce first, understand why a debugger can distort timing bugs, use structured logging with correlation IDs — weakest category by average score across sessions.
+8. **Request lifecycle fundamentals** (DNS → TCP → TLS → HTTP) — scored 2/10 with zero partial credit, a very standard interview question.
+9. **Precise design-pattern definitions** (Facade vs. God class; Strategy vs. plain polymorphism) — the *judgment* of over-engineering is already solid; the *vocabulary* is not.
+10. **`hashCode`/`equals` contract mechanism** — the bucket-index lookup in `HashSet`/`HashMap`; conclusion was right after a hint, mechanism needs to be stated unprompted. (07-29.)
+11. **Maven/Gradle dependency conflict diagnostics** (`dependency:tree`, nearest-wins) — a concrete, practical gap.
+12. **Idempotency terminology** — use the word explicitly and know the PUT-safe / POST-risky default.
+13. **SQL injection fix precision** — know *why* `PreparedStatement` works (structure/data sent separately) and that validation isn't a substitute for it; the vulnerability and a concrete attack were already identified correctly. (07-29 — lower priority, mostly a polish item.)
+14. **Environment/secrets config across dev/staging/prod** — know Spring profiles for non-secret config and platform-injected secrets for real ones, rather than hand-distributing per-environment files. (08-01 — lower priority, decent instinct already, just needs the specific tools named.)
+15. **Naming polish**: state the **leftmost-prefix rule** explicitly for composite indexes, and **lazy loading** explicitly as N+1's root cause — both were reasoned correctly but left unnamed. (08-01 — lowest priority, the underlying reasoning was already right.)
 
 ## 5. Consistent Strengths (keep doing these)
 
@@ -625,3 +679,5 @@ Ranked by (a) how wrong the current understanding is, and (b) how likely it is t
 - Willingness to reason out loud, ask clarifying questions, and give a best guess under uncertainty rather than freezing (explicitly praised in multiple session summaries).
 - Commit-hygiene instincts have measurably improved and stuck across sessions — evidence that repeated practice on a topic here is translating into consistent recall.
 - Giving concrete, non-trivial attack/impact scenarios instead of generic answers — e.g. the SQL injection answer named a specific `JOIN`-based data-exfiltration exploit rather than just "it's insecure" (07-29).
+- Recognizing well-known mechanisms fast and correctly on the first try when the pattern is familiar — N+1 and composite-index leftmost-prefix behavior (both 08-01) were identified and reasoned correctly from first principles, no hint needed.
+- Volunteering practical, real-world fixes unprompted even when the core mechanism explanation is incomplete — e.g. bringing up idempotency as a fix direction for cross-instance duplicate processing before the `synchronized`-is-JVM-local mechanism was fully explained (08-01, Q1).
