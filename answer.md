@@ -1,10 +1,3 @@
-it the N + 1 query problem 
-when i call to db to get the orders i want to get all orders but when i use this query it vill relevant with the User and it can call the query to select the user having this customer_id
+with the moderate concurrent load it can have CCU between 50 to 500 so when we use the Pessimistic Locking so when 500 request about refund and shipment-receipt run in the same time in the same record in each table 
 
-so if i the orders have 10000 record it will call after that 10000 query just to get the order's customer name so we just need 1 query but it took 10001 query so it will down our db , our server if CCU is higher 
-
-so if we want to fix it we need to use each approach
-
-JOIN FETCH in Spring data jpa 
-
-we join 2 table order and user together i select the order and customer name at once (big query)
+so it lock the record the user1 active -> lock -> release it same time so when user500 active it will wait until the lock is released but when it need to wait the user1 -> user2 -> user3 -> user4 ... ->user499 so it can make the user5000 think it is DeadLock when it wait for a long time (timeout) so in this case i will use another lock is Optimistic Lock i will use the @Version and check so it can prevent the DeadLock

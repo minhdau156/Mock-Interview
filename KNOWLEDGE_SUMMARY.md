@@ -1,6 +1,6 @@
 # Mock Interview — Knowledge Summary
 
-**Covers sessions:** 2026-07-04, 07-05, 07-06, 07-08, 07-10, 07-14, 07-16, 07-29, 08-01 (9 sessions, 45 questions)
+**Covers sessions:** 2026-07-04, 07-05, 07-06, 07-08, 07-10, 07-14, 07-16, 07-29, 08-01, 08-02 (10 sessions, 50 questions)
 **Role target:** Junior Backend Developer (Java/Spring Boot)
 
 This is a study reference, not just a log. Each category below gives the full mechanism — not only what was missed in a session, but the concept in enough depth to explain it cold in the real interview, with code where it clarifies the point.
@@ -20,8 +20,9 @@ This is a study reference, not just a log. Each category below gives the full me
 | 07-16 | 5.2/10 | Git Tooling, Core Java, OOP/LLD, Databases, Spring/JPA |
 | 07-29 | 4.6/10 | Core Java, Git Tooling, System Design, Web/Frontend, Testing/Debugging |
 | 08-01 | 6.0/10 | Concurrency, Databases, Git Tooling, Testing/Debugging, Spring/JPA |
+| 08-02 | 4.2/10 | Databases, Spring/JPA, REST API, Concurrency, Testing/Debugging |
 
-Trend is upward but noisy (4.0 → 6.8 with dips) — scores depend heavily on which specific angle a topic is tested from, not just topic familiarity. Best sessions (07-06, 07-14) both landed a clean 8/10 on **concurrency/race-condition tracing** and handled **CORS/system design** reasonably. Weakest sessions (07-04, 07-05) struggled most with **debugging methodology** and **request-lifecycle/exception fundamentals**. 07-29 was the first session to deliberately target sub-topics *not yet documented here* rather than seed-randomized picks — the dip to 4.6 reflects fresh, previously-untested gaps (merge conflict mechanics, mocking anti-patterns) surfacing for the first time, not regression on known material. 08-01 continued that deliberate-gap-targeting approach and landed 6.0/10 — clean, correct-on-first-try answers on composite-index reasoning and N+1 recognition, but exposed a fresh and fairly deep gap in test-driving a bug fix, plus a partial gap on why in-process locks don't coordinate across app instances.
+Trend is upward but noisy (4.0 → 6.8 with dips) — scores depend heavily on which specific angle a topic is tested from, not just topic familiarity. Best sessions (07-06, 07-14) both landed a clean 8/10 on **concurrency/race-condition tracing** and handled **CORS/system design** reasonably. Weakest sessions (07-04, 07-05) struggled most with **debugging methodology** and **request-lifecycle/exception fundamentals**. 07-29 was the first session to deliberately target sub-topics *not yet documented here* rather than seed-randomized picks — the dip to 4.6 reflects fresh, previously-untested gaps (merge conflict mechanics, mocking anti-patterns) surfacing for the first time, not regression on known material. 08-01 continued that deliberate-gap-targeting approach and landed 6.0/10 — clean, correct-on-first-try answers on composite-index reasoning and N+1 recognition, but exposed a fresh and fairly deep gap in test-driving a bug fix, plus a partial gap on why in-process locks don't coordinate across app instances. 08-02 kept the seed-random category picker but required every question's *content* to differ from anything already documented here — the dip to 4.2 reflects several previously-untested mechanisms landing at once: self-invocation bypassing `@Transactional`'s proxy, mistaking lock-order-inversion deadlocks for simple contention/timeout, and a non-timing (stack-depth threshold) intermittent bug that didn't fit the timing-bug debugging framework already learned. The one strong showing (7/10, OFFSET-vs-cursor pagination) shows the "reason from first principles about a new mechanism" skill transfers when the scenario doesn't collide with an already-memorized-but-wrong rule.
 
 ---
 
@@ -36,6 +37,9 @@ These aren't just gaps — they were stated as fact and are incorrect. Fix these
 - **Applying a function to an indexed column defeats the index** (`WHERE UPPER(email) = ...`) — the DB indexed raw values, not transformed ones, so it forces a full scan. (07-05, Q1) Fix: normalize at write time (store lowercase) or use a functional index.
 - **Resolving a merge conflict is not "choose one side."** (07-29, Q2) Framed conflict resolution as discussing with a teammate to pick between two competing versions. In reality, the two changes usually both need to survive — e.g. a teammate's refactor of a method's structure *and* your unrelated addition inside it. Picking one side wholesale is exactly how you silently discard real work. The correct process: read the `<<<<<<<`/`=======`/`>>>>>>>` markers, manually combine both changes into one correct version, test it, then `git add`/`commit` (or `rebase --continue`).
 - **"Run the existing tests" is not the same as test-driving a bug fix.** (08-01, Q4) Asked what to do before fixing a reported bug, answered that checking/running the existing tests was enough and "we don't need to rewrite the test." But if a bug reached production, there is almost certainly no existing test covering that exact case — otherwise CI would have caught it before it shipped. The correct first step is to **write a new test that encodes the exact bug**, confirm it **fails** against current code (proof the bug is genuinely reproduced), then fix the code and confirm it **passes** (proof the fix works) — and that test then stays in the suite as a permanent regression guard. Needed two hints and still didn't reach this independently.
+- **A confidently-recalled `@Transactional` rule was applied to the wrong bug.** (08-02, Q2) Given a scenario where `placeOrder` calls `this.saveOrder(order)` in the same class, and the `@Transactional` `saveOrder` doesn't roll back on failure, answered that the cause must be a checked exception needing `rollbackFor = Exception.class` — reusing the correct-in-general rule from 07-16 without checking whether it actually fit. The real cause here is **self-invocation bypassing the Spring AOP proxy**: `@Transactional` only takes effect when the call comes from outside the bean, through the proxy; a call on `this` from inside the same class never reaches it, so no transaction is opened at all and `rollbackFor` is irrelevant. This is a distinct, common Spring gotcha from the checked/unchecked rollback rule — don't conflate "the annotation exists on the method" with "the annotation is actually in effect for this call path."
+- **A deadlock is not the same thing as lock contention/timeout under load.** (08-02, Q4) Given two endpoints that pessimistically lock the same two rows in opposite orders (`orders`→`inventory` vs. `inventory`→`orders`), and told this throws a real database deadlock error, answered that it was really just many concurrent users (e.g. 500) queueing for the same lock until one of them times out and mistakes it for a deadlock. That's a description of ordinary serialized waiting, not a deadlock. A deadlock is a **circular wait**: transaction A holds what B needs next and vice versa, forming a cycle with no possible progress — the database's deadlock detector finds this almost immediately (not after a load-dependent timeout) and kills one transaction to break the cycle. Fix is **consistent lock-acquisition ordering** across every code path that locks the same rows, not a load-capacity argument or a wholesale switch to optimistic locking.
+- **Deleting rows to satisfy a foreign key constraint isn't automatically the correct fix.** (08-02, Q1) Given a GDPR "delete my account" request blocked by a FK from `orders.customer_id`, proposed deleting the referencing `orders` rows first, then the customer — technically resolves the constraint, but orders are usually financial/legal records with a retention requirement that survives account deletion. The standard real-world pattern is the reverse of what was proposed: keep the orders, **anonymize the customer's PII** instead of deleting the customer row outright (or point `orders.customer_id` at a placeholder via `ON DELETE SET NULL`). Also stated the reason for keeping the FK as "it makes the query easier" rather than referential integrity (preventing orphaned rows pointing at nothing).
 
 ---
 
@@ -248,6 +252,26 @@ SELECT * FROM orders WHERE status = 'PENDING';
 ```
 A composite index is a single B-tree physically sorted by the **first** column, then by the second column *within* each value of the first, then the third *within* that. A query has to filter on a left-to-right prefix of the indexed columns to benefit — `(a)`, `(a, b)`, or `(a, b, c)` — never `(b)` alone or `(c)` alone, because the tree was never sorted with `b` or `c` as the primary key. Missing piece: naming the rule itself ("leftmost-prefix rule") and stating the write-side trade-off explicitly — every index speeds up matching reads but adds overhead to every `INSERT`/`UPDATE`/`DELETE` on that table, so index choices should be justified by how frequent/important the query actually is, and confirmed with `EXPLAIN` before committing to add one.
 
+**Foreign keys, referential integrity, and why "just delete the children" isn't always correct.** (08-02, Q1, scored 5/10)
+```sql
+CREATE TABLE customers (id BIGINT PRIMARY KEY, email VARCHAR(255) UNIQUE, ...);
+CREATE TABLE orders (id BIGINT PRIMARY KEY, customer_id BIGINT REFERENCES customers(id), total DECIMAL, ...);
+
+DELETE FROM customers WHERE id = 42;  -- fails: FK constraint violation, because orders still reference id=42
+```
+The FK's job is **referential integrity**: it guarantees an `orders` row can never point at a `customer_id` that doesn't exist in `customers` — not "convenience" for writing queries. Dropping the constraint to make the error go away removes that guarantee and lets orphaned rows accumulate silently.
+
+The instinct to delete the child rows first (`DELETE FROM orders WHERE customer_id = ...` then delete the customer) is the right *mechanical* pattern for a plain parent/child cleanup — but it's the wrong call specifically when the request is a **GDPR "delete my account" request on an e-commerce order system**. Order/invoice rows are usually financial records a business is legally required to retain (accounting, tax audits) even after the customer's account is gone. The standard real-world pattern is the reverse: **don't delete the orders — anonymize the customer instead** (scrub PII on the `customers` row, or repoint `orders.customer_id` at a "deleted user" placeholder via `ON DELETE SET NULL`), so order history survives with the personal data removed. Declarative schema-level options worth knowing by name: `ON DELETE CASCADE` (auto-delete children — convenient but dangerous, a mistaken parent delete silently wipes every child row with no warning), `ON DELETE SET NULL`, `ON DELETE RESTRICT` (the default-like behavior seen here).
+
+Reflex: whenever "delete" and "financial/regulatory data" appear in the same request, ask *"am I allowed to actually remove this row, or do I need to anonymize instead?"* before reaching for a cascade delete.
+
+**OFFSET pagination cost — precision on the mechanism.** (08-02, Q3, scored 7/10; tested under REST & API Design, but the underlying mechanism is a B-tree/indexing fact)
+```sql
+SELECT * FROM orders ORDER BY created_at DESC LIMIT 25 OFFSET 100000;   -- 8+ seconds
+SELECT * FROM orders ORDER BY created_at DESC LIMIT 25 OFFSET 0;        -- instant
+```
+Even with an index on `created_at`, this typically still shows as an **Index Scan** in `EXPLAIN`, not a full/sequential scan — calling it "the index doesn't work" overstates it. The real issue: a B-tree supports jumping to a specific *key value*, not to the *Nth row by ordinal position*. To satisfy `OFFSET 100000`, the engine must walk the index entry-by-entry and discard the first 100,000 rows before it can start returning any — an `O(offset)` cost inherent to offset pagination, independent of indexing. Fix: **keyset/cursor pagination** — `WHERE created_at < <last_seen_value> ORDER BY created_at DESC LIMIT 25`, storing the last row's value as the cursor for the next page, so the query jumps straight to the right key instead of counting through discarded rows. Correctness nuance: if the cursor column isn't unique (two rows can share the same `created_at`), a single-column cursor can skip or duplicate rows across pages — use a **compound cursor** `(created_at, id)` with a matching composite index, so the tie-breaker column makes every row's position unique.
+
 **Also in the topic pool, worth reviewing:**
 - `LIKE '%foo'` (leading wildcard) also defeats a b-tree index, same reason as a function wrapper — the index can't binary-search on a pattern that doesn't anchor at the start.
 - Normalization (1NF–3NF) vs. deliberate denormalization — and being explicit about the write-cost you accept when you denormalize.
@@ -319,6 +343,42 @@ Spot it in logs: one query for the parent list, then N nearly-identical queries 
 
 **Entity gotchas worth reviewing:** JPA requires a no-args constructor on `@Entity` classes; `equals`/`hashCode` on entities need care (usually base them on the business/natural key or just `id`, and handle the pre-persist `null id` case) to avoid broken behavior in `Set`s/`Map`s before the entity is saved.
 
+**`@Transactional` self-invocation — a distinct gotcha from the rollback-exception-type rule, and a fresh gap.** (08-02, Q2, scored 3/10 — a previously-correct rule misapplied to the wrong bug)
+```java
+@Service
+public class OrderService {
+    public void placeOrder(Order order) {
+        validate(order);
+        this.saveOrder(order);        // plain call on `this` — NOT through the Spring proxy
+        notifyWarehouse(order);
+    }
+
+    @Transactional
+    public void saveOrder(Order order) {
+        orderRepository.save(order);
+        inventoryRepository.decrementStock(order);   // throws (e.g. stock hit zero) -> should roll back save(), but doesn't
+    }
+}
+```
+`@Transactional` doesn't work on the method itself — Spring wraps the **bean** in a dynamic proxy (JDK proxy or CGLIB) that intercepts calls to open/commit/roll back a transaction. That interception only happens when the call arrives **from outside the bean, through the proxy** (e.g. another Spring-managed bean calling `orderService.saveOrder(...)`). `this.saveOrder(order)` is a plain Java call on the raw object — it never touches the proxy, so no transaction is opened for that call at all, and nothing about `rollbackFor`/exception type matters, because there's no transaction to roll back in the first place. This is easy to misdiagnose as the checked-vs-unchecked rollback issue (see Critical Misconceptions above — `@Transactional` does NOT roll back on checked exceptions by default) because both bugs present as "`@Transactional` didn't roll back," but the fix is completely different: extract the method into a **separate injected bean** so the call comes from outside the class and passes through the proxy.
+```java
+@Service
+public class OrderService {
+    private final OrderPersistenceService persistenceService;
+    public void placeOrder(Order order) {
+        validate(order);
+        persistenceService.saveOrder(order);   // external call through the proxy -> transaction actually applies
+        notifyWarehouse(order);
+    }
+}
+@Service
+public class OrderPersistenceService {
+    @Transactional
+    public void saveOrder(Order order) { ... }
+}
+```
+Reflex: any time `@Transactional` "isn't working," ask *"is this method self-invoked — called via `this.method()` or a bare unqualified call from another method in the same class?"* before touching `rollbackFor` or exception types at all.
+
 ---
 
 ### REST & API Design
@@ -358,7 +418,7 @@ An explicit action endpoint communicates intent and is the natural home for the 
 GET /api/v1/books                 -- fine at 500 rows, a slow-motion crash at 2,000,000
 GET /api/v1/books?page=0&size=25  -- bounded response size regardless of table growth
 ```
-The fix belongs at both layers: the SQL query itself needs `LIMIT`/`OFFSET` (or cursor/keyset pagination for large offsets, which avoids `OFFSET`'s "still scans and discards N rows" cost), and the API contract needs `page`/`size` (or cursor) query params so a client can never accidentally request everything at once.
+The fix belongs at both layers: the SQL query itself needs `LIMIT`/`OFFSET` (or cursor/keyset pagination for large offsets, which avoids `OFFSET`'s "still scans and discards N rows" cost), and the API contract needs `page`/`size` (or cursor) query params so a client can never accidentally request everything at once. Full mechanism (why the offset cost grows, and the keyset-pagination fix with its tie-breaker caveat) is written up under Databases → "OFFSET pagination cost — precision on the mechanism" above.
 
 **DTOs vs. entities** — flagged as a gap, not yet corrected in an answer: returning a `@Entity` class directly from a `@RestController` couples your DB schema to your public API contract (a schema change becomes a breaking API change), and can leak fields (password hashes, internal flags) or trigger `LazyInitializationException` when Jackson tries to serialize an uninitialized lazy association outside a transaction. A separate DTO/response record decouples the two.
 
@@ -398,6 +458,7 @@ Gap to close even in the 8/10 answers: **name the concept explicitly** ("this is
 | 1 | **In-process race** — one shared mutable field, multiple threads in the same JVM | Lost updates on a counter under concurrent load | `AtomicInteger` / `synchronized` | — (this one was answered correctly) |
 | 2 | **Lost update across two transactions** — two separate HTTP requests each read-then-write the same DB row | Agent A's edit silently overwritten by Agent B's save 5 seconds later | Optimistic locking (`@Version`) or pessimistic locking (`SELECT ... FOR UPDATE`) | `@Transactional` — wraps one method, doesn't coordinate two separate transactions |
 | 3 | **Duplicate-insert race** — two requests both pass a "does this exist?" check before either inserts | Two rows with the same email after concurrent signups | DB-level `UNIQUE` constraint (no lock needed — nothing to lock yet) | Pessimistic locking — there's no existing row to `SELECT ... FOR UPDATE` |
+| 4 | **Deadlock via lock-order inversion** — two transactions each pessimistically lock the same two+ rows, but in opposite orders | Both transactions error out with a real DB deadlock exception, near-instantly, under only moderate concurrent load | Enforce one consistent lock-acquisition order across every code path that locks those rows | Explaining it as ordinary lock contention/timeout under load, or switching wholesale to optimistic locking |
 
 Ask first, every time: **"Is this racing inside one process (needs `synchronized`/atomics), or racing across time via the database (needs a schema constraint or transactional locking)?"**
 
@@ -429,6 +490,24 @@ COMMIT;                                          -- lock released
 ```
 Fits short, high-conflict operations (e.g. last-seat booking) where losing the conflict is expensive — trades throughput for safety: concurrent requests queue up and wait, which can cause timeouts under heavy load, and introduces deadlock risk if two transactions lock multiple rows in different orders. Keep the transaction short.
 
+**Deadlock via lock-order inversion — confused with ordinary lock contention/timeout, a genuine misconception.** (08-02, Q4, scored 3/10)
+```java
+// Endpoint A: refund flow
+Order order = orderRepository.findByIdForUpdate(orderId);       // locks orders first
+Inventory inv = inventoryRepository.findByIdForUpdate(inventoryId); // then inventory
+
+// Endpoint B: shipment-receipt flow
+Inventory inv = inventoryRepository.findByIdForUpdate(inventoryId); // locks inventory first
+Order order = orderRepository.findByIdForUpdate(orderId);           // then orders
+```
+```
+Txn A: locks orders(7)                                          ─┐
+Txn B: locks inventory(3)                                        ─┤  (happens ~simultaneously)
+Txn A: tries to lock inventory(3) -> BLOCKS, waiting on Txn B
+Txn B: tries to lock orders(7)    -> BLOCKS, waiting on Txn A     -- circular wait: neither can proceed
+```
+This is a **deadlock**, not lock contention: each transaction holds exactly what the other one needs next, forming a cycle with no possible progress. It is easy to mistake for "many concurrent users queueing for the same lock until one times out" — but ordinary contention is just serialized waiting in *one direction* and eventually resolves; it never gets flagged as a deadlock by the database and isn't timing/load-dependent in the same way. A real deadlock is found by the database's deadlock detector almost immediately (milliseconds, not a load-dependent timeout), which then kills one of the two transactions outright to break the cycle. The fix is **not** switching locking strategy wholesale (e.g. to optimistic locking) — it's enforcing **one consistent lock-acquisition order** across every code path that touches the same rows (e.g. always lock `orders` before `inventory`, or always lock by ascending row ID). With a single consistent order, every transaction queues behind the other in the same direction, so a cycle can never form. Reflex: any time two-or-more `SELECT ... FOR UPDATE` calls happen in one transaction, check every *other* method that locks those same tables for a different acquisition order — that's a deadlock waiting to happen, independent of load level.
+
 **Distributed locking — partially reasoned, mechanism not yet explicit.** (08-01, Q1, scored 5/10) Given a scenario where a teammate added `synchronized` to fix duplicate order processing, and duplicates kept happening once there were two app instances: correctly identified "multiple servers" as the root symptom, and volunteered idempotency as a fix direction unprompted — but didn't explain *why* `synchronized` specifically fails, and needed a hint to recall what `synchronized` does at all.
 
 The mechanism worth stating explicitly: a `synchronized` lock is tied to an object living inside **one JVM process**. Two app instances are two separate JVMs, each with its own independent copy of that lock object — neither has any visibility into the other's lock. A thread on instance A and a thread on instance B can each acquire "their own" copy of the lock and enter the method at the exact same instant. In-process tools (`synchronized`, `AtomicInteger`) only ever coordinate threads *within a single process* — once there's more than one app instance, they stop working entirely, silently, with no error.
@@ -447,6 +526,21 @@ The Redis `SET key value NX PX <ttl>` pattern (set-if-not-exists with an expiry)
 3. **Use structured logging, not `System.out.println` + redeploy.** `println` has no log levels (can't turn it up/down), isn't searchable/aggregable across instances, and requires a full redeploy for every adjustment. Prefer a real logger with levels (`DEBUG`/`TRACE` for detail that's normally off) and structured context — request ID, timestamp, user/order ID, thread/instance ID — so a specific failing request can be isolated out of a huge log dump. (The instinct to filter logs by a request/correlation ID was already present and correct.)
 4. **Form an explicit hypothesis for *why* it's intermittent** before reaching for a tool — don't jump straight to "let's add logging" with no theory. Candidate hypotheses worth naming out loud for a "sometimes" bug: a non-idempotent endpoint being hit twice (double-submit/double-charge), an exception being silently swallowed inside a loop (job "skips" some items with no trace), or a job running on two instances/threads simultaneously.
 5. **Binary-search debugging** once you have a hypothesis and can reproduce: narrow down *where* in the flow the bug is introduced by checking state at successively narrower points, rather than reading the whole flow top to bottom hoping to spot it.
+
+**Not every intermittent bug is a timing/concurrency race — resource/threshold effects need a different hypothesis.** (08-02, Q5, scored 3/10 — a fresh gap; the 5-step framework above is specifically for *timing*-based intermittency and doesn't transfer automatically)
+```java
+public List<Category> flatten(Category node) {
+    List<Category> result = new ArrayList<>();
+    result.add(node);
+    for (Category child : node.getChildren()) {
+        result.addAll(flatten(child));   // recursive call per child
+    }
+    return result;
+}
+```
+Scenario: one customer's account, with an unusually deep legacy-imported category tree, throws `StackOverflowError` intermittently — maybe 1 in 5 times — with **no code changes and an identical tree** between runs. The answer given only restated the obvious surface cause ("the tree is too deep") without addressing the actual question: if the input is identical every time, why does it fail only *sometimes*? That's a **resource/threshold bug**, not a logic bug — the recursion depth for this account's tree sits right at the edge of the JVM's available stack space, and small, incidental variations in how much stack the surrounding call chain has already consumed before reaching this method (which thread from a pool handled the request, how many filter/proxy layers ran first) tip it over the edge on some runs and not others.
+
+The debugging approach this calls for is different from the timing-bug framework above: form the hypothesis "is this a resource/threshold effect (stack depth, memory, connection-pool exhaustion) rather than a timing race?" — then confirm it directly (log the recursion depth reached, or the tree's actual depth, and compare against the JVM's known default stack size) before touching a fix. `println`/logging is still the right tool to gather that evidence, but the *goal* of the logging is different: proving a threshold was crossed, not narrowing down a race window. The real fix is structural, not more logging: convert the recursion to an **iterative** traversal using an explicit stack (`Deque<Category>`) instead of the language call stack — this removes the dependency on JVM stack size entirely and scales to arbitrary depth. Raising `-Xss` (the stack size) only raises the threshold; it doesn't remove the fragility.
 
 **Mocking anti-pattern: over-mocking / "testing the mock, not the code."** (07-29, Q5 — needed a hint and a full explanation before the concept could be restated; weakest score of that session)
 ```java
@@ -656,20 +750,22 @@ Two-lens reflex: "config that differs by environment but isn't secret" → Sprin
 Ranked by (a) how wrong the current understanding is, and (b) how likely it is to come up:
 
 1. **`@Transactional` semantics** — rollback only on unchecked exceptions/`Error` by default; does not coordinate across separate transactions/requests. (Confidently wrong twice — highest priority.)
-2. **Test-driving a bug fix** — before fixing any reported bug, write a new test that encodes it and confirm it fails first; don't rely on "check the existing tests." (08-01 — weakest score of that session, needed two hints and still didn't reach it independently; ties directly into Testing & Debugging being the weakest category overall.)
-3. **Merge conflict resolution** — resolving means combining both changes into one correct version, not discussing with a teammate to pick one side wholesale. (07-29 — a fresh misconception on a very common daily task.)
-4. **Mocking anti-patterns (over-mocking)** — recognize when every collaborator is mocked and the assertion just checks the stub's own return value; know to verify orchestration (`verify()`) or stop mocking everything. (07-29 — weakest score of that session, needed the most support.)
-5. **Telling apart the concurrency problem shapes** and their distinct fixes: in-process race → atomics/locks; **cross-instance duplicate processing → distributed lock or idempotency, not `synchronized`** (which is JVM-local only — added 08-01, partially reasoned but the mechanism wasn't yet explicit); cross-transaction lost update → optimistic/pessimistic locking; duplicate-insert race → `UNIQUE` constraint (no locking needed).
-6. **Sync vs async / message queue decoupling** — a non-blocking `async/await` call is still a direct call coupled to the downstream service's availability; a message queue is a stronger, different kind of decoupling. (07-29.)
-7. **Debugging methodology for intermittent bugs**: reproduce first, understand why a debugger can distort timing bugs, use structured logging with correlation IDs — weakest category by average score across sessions.
-8. **Request lifecycle fundamentals** (DNS → TCP → TLS → HTTP) — scored 2/10 with zero partial credit, a very standard interview question.
-9. **Precise design-pattern definitions** (Facade vs. God class; Strategy vs. plain polymorphism) — the *judgment* of over-engineering is already solid; the *vocabulary* is not.
-10. **`hashCode`/`equals` contract mechanism** — the bucket-index lookup in `HashSet`/`HashMap`; conclusion was right after a hint, mechanism needs to be stated unprompted. (07-29.)
-11. **Maven/Gradle dependency conflict diagnostics** (`dependency:tree`, nearest-wins) — a concrete, practical gap.
-12. **Idempotency terminology** — use the word explicitly and know the PUT-safe / POST-risky default.
-13. **SQL injection fix precision** — know *why* `PreparedStatement` works (structure/data sent separately) and that validation isn't a substitute for it; the vulnerability and a concrete attack were already identified correctly. (07-29 — lower priority, mostly a polish item.)
-14. **Environment/secrets config across dev/staging/prod** — know Spring profiles for non-secret config and platform-injected secrets for real ones, rather than hand-distributing per-environment files. (08-01 — lower priority, decent instinct already, just needs the specific tools named.)
-15. **Naming polish**: state the **leftmost-prefix rule** explicitly for composite indexes, and **lazy loading** explicitly as N+1's root cause — both were reasoned correctly but left unnamed. (08-01 — lowest priority, the underlying reasoning was already right.)
+2. **`@Transactional` self-invocation bypassing the Spring proxy** — a *distinct* gotcha from #1: calling a `@Transactional` method via `this.method()` (or a bare call) from inside the same class skips the AOP proxy entirely, so no transaction is ever opened, regardless of `rollbackFor` or exception type. (08-02 — confidently misapplied the checked/unchecked rollback rule from #1 to this different bug; both present identically as "`@Transactional` didn't roll back," so telling them apart matters.)
+3. **Test-driving a bug fix** — before fixing any reported bug, write a new test that encodes it and confirm it fails first; don't rely on "check the existing tests." (08-01 — weakest score of that session, needed two hints and still didn't reach it independently; ties directly into Testing & Debugging being the weakest category overall.)
+4. **Merge conflict resolution** — resolving means combining both changes into one correct version, not discussing with a teammate to pick one side wholesale. (07-29 — a fresh misconception on a very common daily task.)
+5. **Mocking anti-patterns (over-mocking)** — recognize when every collaborator is mocked and the assertion just checks the stub's own return value; know to verify orchestration (`verify()`) or stop mocking everything. (07-29 — weakest score of that session, needed the most support.)
+6. **Telling apart the concurrency problem shapes** and their distinct fixes: in-process race → atomics/locks; **cross-instance duplicate processing → distributed lock or idempotency, not `synchronized`** (which is JVM-local only — added 08-01, partially reasoned but the mechanism wasn't yet explicit); cross-transaction lost update → optimistic/pessimistic locking; duplicate-insert race → `UNIQUE` constraint (no locking needed); **deadlock (lock-order inversion) → enforce one consistent lock-acquisition order — not a lock-contention/timeout explanation, and not a wholesale switch to optimistic locking** (08-02 — a flat misconception, mistook a real circular-wait deadlock for ordinary contention under load).
+7. **Sync vs async / message queue decoupling** — a non-blocking `async/await` call is still a direct call coupled to the downstream service's availability; a message queue is a stronger, different kind of decoupling. (07-29.)
+8. **Debugging methodology for intermittent bugs** — two distinct hypotheses depending on the shape: **timing/concurrency races** (reproduce first, understand why a debugger can distort timing bugs, use structured logging with correlation IDs — weakest category by average score across sessions) vs. **resource/threshold effects** (e.g. recursion depth sitting right at the JVM's stack-size limit — identical input fails only sometimes because of incidental variation in already-consumed stack, not a race). (08-02 — applied no framework at all when the bug turned out not to be timing-based; this distinction itself is the fresh gap.)
+9. **Request lifecycle fundamentals** (DNS → TCP → TLS → HTTP) — scored 2/10 with zero partial credit, a very standard interview question.
+10. **Precise design-pattern definitions** (Facade vs. God class; Strategy vs. plain polymorphism) — the *judgment* of over-engineering is already solid; the *vocabulary* is not.
+11. **`hashCode`/`equals` contract mechanism** — the bucket-index lookup in `HashSet`/`HashMap`; conclusion was right after a hint, mechanism needs to be stated unprompted. (07-29.)
+12. **Foreign keys vs. business/legal retention requirements** — deleting referencing rows to satisfy a FK constraint isn't automatically correct; check whether that data must be retained (financial/legal/audit — e.g. a GDPR delete on an order history table) and anonymize the parent instead of cascading the delete when it does. Know `ON DELETE CASCADE`/`SET NULL`/`RESTRICT` by name. (08-02.)
+13. **Maven/Gradle dependency conflict diagnostics** (`dependency:tree`, nearest-wins) — a concrete, practical gap.
+14. **Idempotency terminology** — use the word explicitly and know the PUT-safe / POST-risky default.
+15. **SQL injection fix precision** — know *why* `PreparedStatement` works (structure/data sent separately) and that validation isn't a substitute for it; the vulnerability and a concrete attack were already identified correctly. (07-29 — lower priority, mostly a polish item.)
+16. **Environment/secrets config across dev/staging/prod** — know Spring profiles for non-secret config and platform-injected secrets for real ones, rather than hand-distributing per-environment files. (08-01 — lower priority, decent instinct already, just needs the specific tools named.)
+17. **Naming and precision polish**: state the **leftmost-prefix rule** explicitly for composite indexes; name **lazy loading** explicitly as N+1's root cause; distinguish "index used, but must walk and discard offset rows" from "full table scan" when explaining OFFSET pagination cost; remember the **compound-cursor tie-breaker** (`(created_at, id)`) for keyset pagination correctness. All reasoned correctly or nearly so — lowest priority, just needs sharper naming. (08-01, 08-02.)
 
 ## 5. Consistent Strengths (keep doing these)
 
@@ -681,3 +777,5 @@ Ranked by (a) how wrong the current understanding is, and (b) how likely it is t
 - Giving concrete, non-trivial attack/impact scenarios instead of generic answers — e.g. the SQL injection answer named a specific `JOIN`-based data-exfiltration exploit rather than just "it's insecure" (07-29).
 - Recognizing well-known mechanisms fast and correctly on the first try when the pattern is familiar — N+1 and composite-index leftmost-prefix behavior (both 08-01) were identified and reasoned correctly from first principles, no hint needed.
 - Volunteering practical, real-world fixes unprompted even when the core mechanism explanation is incomplete — e.g. bringing up idempotency as a fix direction for cross-instance duplicate processing before the `synchronized`-is-JVM-local mechanism was fully explained (08-01, Q1).
+- Once the right high-level technique is identified, producing genuinely correct, concrete code for it on a brand-new scenario rather than a generic sketch — e.g. the keyset-pagination SQL (`WHERE created_at < ? ORDER BY ... LIMIT 25`) and the delete-children-before-parent ordering for a FK conflict were both essentially correct on the first try (08-02, Q3 and Q1).
+- Good defensive instinct before a destructive operation: checking whether *other* tables also reference the one being deleted from, not just the obvious one (08-02, Q1).
