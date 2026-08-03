@@ -1,3 +1,15 @@
-with the moderate concurrent load it can have CCU between 50 to 500 so when we use the Pessimistic Locking so when 500 request about refund and shipment-receipt run in the same time in the same record in each table 
+i think first i will create the VendingManager class
 
-so it lock the record the user1 active -> lock -> release it same time so when user500 active it will wait until the lock is released but when it need to wait the user1 -> user2 -> user3 -> user4 ... ->user499 so it can make the user5000 think it is DeadLock when it wait for a long time (timeout) so in this case i will use another lock is Optimistic Lock i will use the @Version and check so it can prevent the DeadLock
+which will have 2 DI
+
+FormulaManager for managing the coin get in the machine
+DrinkFactory for dispense the drink that customer choose
+
+and the Drink interface which have 3 field 
+code, price, name
+and the class Drink that implemnent the Drink class
+like Pepsi, Coca, Tea, Coffee
+
+when you get the coin in and type the code of drink the FormulaManager will handle whether you have enough fund or insufficient fund it will throw the error and the Vending Manager will handle the error
+
+so if you have enough we will go to the DrinkFactory to dispense the drink and it will match the suitable code if it have give it to customer else out of stock or no code matching throw exception so VendingManager will handle it

@@ -1,6 +1,6 @@
 # Mock Interview — Knowledge Summary
 
-**Covers sessions:** 2026-07-04, 07-05, 07-06, 07-08, 07-10, 07-14, 07-16, 07-29, 08-01, 08-02 (10 sessions, 50 questions)
+**Covers sessions:** 2026-07-04, 07-05, 07-06, 07-08, 07-10, 07-14, 07-16, 07-29, 08-01, 08-02, 08-03 (11 sessions, 53 questions)
 **Role target:** Junior Backend Developer (Java/Spring Boot)
 
 This is a study reference, not just a log. Each category below gives the full mechanism — not only what was missed in a session, but the concept in enough depth to explain it cold in the real interview, with code where it clarifies the point.
@@ -21,8 +21,9 @@ This is a study reference, not just a log. Each category below gives the full me
 | 07-29 | 4.6/10 | Core Java, Git Tooling, System Design, Web/Frontend, Testing/Debugging |
 | 08-01 | 6.0/10 | Concurrency, Databases, Git Tooling, Testing/Debugging, Spring/JPA |
 | 08-02 | 4.2/10 | Databases, Spring/JPA, REST API, Concurrency, Testing/Debugging |
+| 08-03 | 5.3/10 | REST API, OOP/LLD, Core Java (3-question session, categories hand-picked for least-tested coverage) |
 
-Trend is upward but noisy (4.0 → 6.8 with dips) — scores depend heavily on which specific angle a topic is tested from, not just topic familiarity. Best sessions (07-06, 07-14) both landed a clean 8/10 on **concurrency/race-condition tracing** and handled **CORS/system design** reasonably. Weakest sessions (07-04, 07-05) struggled most with **debugging methodology** and **request-lifecycle/exception fundamentals**. 07-29 was the first session to deliberately target sub-topics *not yet documented here* rather than seed-randomized picks — the dip to 4.6 reflects fresh, previously-untested gaps (merge conflict mechanics, mocking anti-patterns) surfacing for the first time, not regression on known material. 08-01 continued that deliberate-gap-targeting approach and landed 6.0/10 — clean, correct-on-first-try answers on composite-index reasoning and N+1 recognition, but exposed a fresh and fairly deep gap in test-driving a bug fix, plus a partial gap on why in-process locks don't coordinate across app instances. 08-02 kept the seed-random category picker but required every question's *content* to differ from anything already documented here — the dip to 4.2 reflects several previously-untested mechanisms landing at once: self-invocation bypassing `@Transactional`'s proxy, mistaking lock-order-inversion deadlocks for simple contention/timeout, and a non-timing (stack-depth threshold) intermittent bug that didn't fit the timing-bug debugging framework already learned. The one strong showing (7/10, OFFSET-vs-cursor pagination) shows the "reason from first principles about a new mechanism" skill transfers when the scenario doesn't collide with an already-memorized-but-wrong rule.
+Trend is upward but noisy (4.0 → 6.8 with dips) — scores depend heavily on which specific angle a topic is tested from, not just topic familiarity. Best sessions (07-06, 07-14) both landed a clean 8/10 on **concurrency/race-condition tracing** and handled **CORS/system design** reasonably. Weakest sessions (07-04, 07-05) struggled most with **debugging methodology** and **request-lifecycle/exception fundamentals**. 07-29 was the first session to deliberately target sub-topics *not yet documented here* rather than seed-randomized picks — the dip to 4.6 reflects fresh, previously-untested gaps (merge conflict mechanics, mocking anti-patterns) surfacing for the first time, not regression on known material. 08-01 continued that deliberate-gap-targeting approach and landed 6.0/10 — clean, correct-on-first-try answers on composite-index reasoning and N+1 recognition, but exposed a fresh and fairly deep gap in test-driving a bug fix, plus a partial gap on why in-process locks don't coordinate across app instances. 08-02 kept the seed-random category picker but required every question's *content* to differ from anything already documented here — the dip to 4.2 reflects several previously-untested mechanisms landing at once: self-invocation bypassing `@Transactional`'s proxy, mistaking lock-order-inversion deadlocks for simple contention/timeout, and a non-timing (stack-depth threshold) intermittent bug that didn't fit the timing-bug debugging framework already learned. The one strong showing (7/10, OFFSET-vs-cursor pagination) shows the "reason from first principles about a new mechanism" skill transfers when the scenario doesn't collide with an already-memorized-but-wrong rule. 08-03 broke from the seed algorithm entirely — categories were hand-picked for lowest historical coverage (REST API, OOP/LLD, Core Java) and cut short to 3 questions by request. The 5.3 average was pulled down by a genuine LLD process gap (state modeling skipped, plus a Factory/inventory mislabeling repeat) rather than a misapplied Spring/DB rule — meanwhile the REST API answer (7/10) was the sharpest single answer of the session, correctly choosing `409` over the common junior default of `400` for a state-conflict error with no hint needed.
 
 ---
 
@@ -134,8 +135,25 @@ class Customer {
 ```
 `HashSet.add()` does **not** compare the incoming object against every existing element with `.equals()`. It first calls `hashCode()` to compute a **bucket index** (`hash % numBuckets`), and only compares `.equals()` against whatever is already sitting in that *same* bucket. Two `Customer` instances with the same `customerId`, loaded from two different feeds, are two different objects in memory — with the default identity-based `hashCode()`, they get two different hash codes and (almost certainly) land in different buckets, so `.equals()` — which correctly says they're the same customer — never even gets called. The contract, stated explicitly: *"if two objects are equal via `.equals()`, they must return the same `hashCode()`."* Reflex: any time you override `equals()`, generate `hashCode()` in the same action (most IDEs do both together) — never one alone.
 
+**Mutating a `HashMap` key after insertion — bucket location is fixed at `put()` time, never recomputed.** (08-03, Q3, scored 5/10 — needed two hints)
+```java
+class RequestKey {
+    Long userId;      // mutable
+    long timestamp;   // mutable
+    // equals()/hashCode() derived from both fields
+}
+
+Map<RequestKey, Response> cache = new HashMap<>();
+RequestKey key = new RequestKey(42L, 1000L);
+cache.put(key, response);   // bucket chosen from hashCode() computed RIGHT NOW
+
+key.timestamp = 2000L;      // mutate the same object, still sitting in the map
+
+cache.get(key);              // hashCode() is now DIFFERENT -> searches the WRONG bucket -> returns null
+```
+`HashMap` computes `hashCode()` once, at `put()` time, to pick a bucket — the entry then sits in that bucket permanently; nothing rehashes it later just because the key object changed. `get()` recomputes `hashCode()` fresh on whatever key you hand it and only searches the bucket that *current* hash points to. Once `RequestKey`'s hash-relevant fields change, `get()` lands on a different bucket than the one the entry actually lives in — the object isn't lost or corrupted, it's just unreachable. `String` never hits this because it's immutable (and Java caches the computed hash inside the `String` instance after the first call — safe to do only because it can never change afterward). Reflex: any class used as a `Map`/`Set` key needs every `equals()`/`hashCode()`-relevant field to be effectively immutable for the object's lifetime as a key — mutate one, and lookups silently break with no exception, no warning.
+
 **Also in the topic pool, not yet directly tested — review before the interview:**
-- String immutability and why it makes `String` safe as a `HashMap` key.
 - `HashMap` internals: collision handling (linked list / red-black tree since Java 8 once a bucket gets large), resizing/rehashing on load factor.
 - Binary search preconditions: the collection must already be sorted.
 
@@ -195,6 +213,27 @@ class Employee {
 }
 ```
 The OOP pillar doing the real work here is **polymorphism** — the concrete `PayCalculator` implementation that runs is decided at runtime through the interface, without the calling code needing an if/else on employee type. `Employee` can still stay an abstract/base class for shared fields (name, id) — abstract-class-for-shared-state and interface-for-varying-behavior aren't mutually exclusive.
+
+**LLD exercise (vending machine) — state modeling skipped entirely, and two precision gaps stacked in one design.** (08-03, Q2, scored 4/10)
+```java
+// What was proposed:
+interface Drink { String code(); double price(); String name(); }
+class Pepsi implements Drink { ... }
+class Coca implements Drink { ... }
+// ... Tea, Coffee the same way
+
+class VendingManager {
+    FormulaManager formulaManager;   // balance/payment handling
+    DrinkFactory drinkFactory;        // matches code -> product, checks stock, dispenses
+}
+```
+Two separate mistakes in one answer:
+1. **Interface + implementers for what's only data variation.** Pepsi/Coca/Tea/Coffee don't differ in *behavior* — only in `code`/`price`/`name`. The same "what specifically is going to vary?" question already used correctly elsewhere for Strategy/Factory judgment calls applies here too: nothing behavioral varies, so `Drink` should be one concrete class (or record), and each product is an *instance* of it, not a separate implementing class.
+2. **"Factory" reused for inventory/repository responsibility — a second occurrence of this exact mislabeling.** Matching a code to a slot, checking quantity, and decrementing stock on dispense isn't object creation — it's tracking and mutating stock state. That's `Inventory`/`StockManager` work. A Factory's actual job (see the pattern table above) is centralizing *which concrete object to create*, not "a class with a method that does stuff."
+
+**What the question actually asked for and didn't get answered: explicit state.** A vending machine needs at minimum (a) the current inserted balance for the in-flight transaction (resets after purchase/refund) and (b) per-product stock counts that persist across transactions. Naming these two state buckets and which object owns each is the actual point of the exercise — "what classes exist" and "what state exists" are different questions, and the second one has to be asked explicitly rather than assumed to fall out of the class list. (Not required at junior depth, but the classic extension here is modeling the machine's own mode — `IDLE`/`HAS_FUNDS`/`DISPENSING`/`SOLD_OUT` — as the textbook example of the **State** pattern.)
+
+Reflex: for any LLD prompt, write nouns-with-state and nouns-with-behavior as two separate lists before sketching classes — and before reaching for an interface, name the concrete thing that would actually differ between implementations.
 
 ---
 
@@ -422,7 +461,16 @@ The fix belongs at both layers: the SQL query itself needs `LIMIT`/`OFFSET` (or 
 
 **DTOs vs. entities** — flagged as a gap, not yet corrected in an answer: returning a `@Entity` class directly from a `@RestController` couples your DB schema to your public API contract (a schema change becomes a breaking API change), and can leak fields (password hashes, internal flags) or trigger `LazyInitializationException` when Jackson tries to serialize an uninitialized lazy association outside a transaction. A separate DTO/response record decouples the two.
 
-**Also in the topic pool, worth reviewing:** consistent error response shape (code, message, field-level errors) across all endpoints; API versioning a field change without breaking existing clients; Jackson basics (`@JsonIgnoreProperties(ignoreUnknown = true)`, date format configuration).
+**Status-code precision under a 3-outcome scenario — best single answer of the 08-03 session.** (08-03, Q1, scored 7/10)
+```java
+// POST /api/orders/{id}/cancel always returned 200; correct per-outcome mapping:
+// success                  -> 200 OK
+// order id not found       -> 404 Not Found
+// order already shipped    -> 409 Conflict   <- correctly NOT 400
+```
+Correctly resisted the common junior default of reaching for `400 Bad Request` for the "already shipped" case — the request itself is well-formed, it's the *current state* of the resource that conflicts with the action, which is exactly what `409` means, chosen with no hint needed. What was missing: the three response bodies sketched were shaped differently case-by-case (a `response` field holding a message in one, `null` in the others) instead of one consistent envelope. A real API needs a single error/response shape produced by *every* endpoint — normally via a global `@ControllerAdvice`/`@ExceptionHandler` mapping specific exceptions (`OrderNotFoundException`, `OrderAlreadyShippedException`) to status + a consistent body, rather than each controller method hand-rolling its own if/else status logic. Also missing: a stable, machine-readable error **code** (`"code": "ORDER_ALREADY_SHIPPED"`) alongside the human message, so the frontend can safely switch on the code even if the message text changes later — it can't safely pattern-match on message strings.
+
+**Also in the topic pool, worth reviewing:** API versioning a field change without breaking existing clients; Jackson basics (`@JsonIgnoreProperties(ignoreUnknown = true)`, date format configuration).
 
 ---
 
@@ -758,7 +806,7 @@ Ranked by (a) how wrong the current understanding is, and (b) how likely it is t
 7. **Sync vs async / message queue decoupling** — a non-blocking `async/await` call is still a direct call coupled to the downstream service's availability; a message queue is a stronger, different kind of decoupling. (07-29.)
 8. **Debugging methodology for intermittent bugs** — two distinct hypotheses depending on the shape: **timing/concurrency races** (reproduce first, understand why a debugger can distort timing bugs, use structured logging with correlation IDs — weakest category by average score across sessions) vs. **resource/threshold effects** (e.g. recursion depth sitting right at the JVM's stack-size limit — identical input fails only sometimes because of incidental variation in already-consumed stack, not a race). (08-02 — applied no framework at all when the bug turned out not to be timing-based; this distinction itself is the fresh gap.)
 9. **Request lifecycle fundamentals** (DNS → TCP → TLS → HTTP) — scored 2/10 with zero partial credit, a very standard interview question.
-10. **Precise design-pattern definitions** (Facade vs. God class; Strategy vs. plain polymorphism) — the *judgment* of over-engineering is already solid; the *vocabulary* is not.
+10. **Precise design-pattern definitions** (Facade vs. God class; Strategy vs. plain polymorphism; Factory vs. inventory/repository responsibility — misapplied a second time on the vending-machine exercise, 08-03) — the *judgment* of over-engineering is already solid; the *vocabulary* is not.
 11. **`hashCode`/`equals` contract mechanism** — the bucket-index lookup in `HashSet`/`HashMap`; conclusion was right after a hint, mechanism needs to be stated unprompted. (07-29.)
 12. **Foreign keys vs. business/legal retention requirements** — deleting referencing rows to satisfy a FK constraint isn't automatically correct; check whether that data must be retained (financial/legal/audit — e.g. a GDPR delete on an order history table) and anonymize the parent instead of cascading the delete when it does. Know `ON DELETE CASCADE`/`SET NULL`/`RESTRICT` by name. (08-02.)
 13. **Maven/Gradle dependency conflict diagnostics** (`dependency:tree`, nearest-wins) — a concrete, practical gap.
@@ -766,6 +814,8 @@ Ranked by (a) how wrong the current understanding is, and (b) how likely it is t
 15. **SQL injection fix precision** — know *why* `PreparedStatement` works (structure/data sent separately) and that validation isn't a substitute for it; the vulnerability and a concrete attack were already identified correctly. (07-29 — lower priority, mostly a polish item.)
 16. **Environment/secrets config across dev/staging/prod** — know Spring profiles for non-secret config and platform-injected secrets for real ones, rather than hand-distributing per-environment files. (08-01 — lower priority, decent instinct already, just needs the specific tools named.)
 17. **Naming and precision polish**: state the **leftmost-prefix rule** explicitly for composite indexes; name **lazy loading** explicitly as N+1's root cause; distinguish "index used, but must walk and discard offset rows" from "full table scan" when explaining OFFSET pagination cost; remember the **compound-cursor tie-breaker** (`(created_at, id)`) for keyset pagination correctness. All reasoned correctly or nearly so — lowest priority, just needs sharper naming. (08-01, 08-02.)
+18. **LLD state modeling as an explicit step** — before sketching classes, separately list what state the system must track (transient vs. persistent) and who owns it; skipping this step let the entire state half of the vending-machine question go unanswered. (08-03.)
+19. **Centralized/global error-response contract** — one shared envelope + stable error code produced via `@ControllerAdvice`/`@ExceptionHandler`, not a per-endpoint ad hoc shape; the status-code judgment itself (404/409 across a multi-outcome action) is already strong. (08-03 — lower priority, mostly a completeness item.)
 
 ## 5. Consistent Strengths (keep doing these)
 
@@ -779,3 +829,4 @@ Ranked by (a) how wrong the current understanding is, and (b) how likely it is t
 - Volunteering practical, real-world fixes unprompted even when the core mechanism explanation is incomplete — e.g. bringing up idempotency as a fix direction for cross-instance duplicate processing before the `synchronized`-is-JVM-local mechanism was fully explained (08-01, Q1).
 - Once the right high-level technique is identified, producing genuinely correct, concrete code for it on a brand-new scenario rather than a generic sketch — e.g. the keyset-pagination SQL (`WHERE created_at < ? ORDER BY ... LIMIT 25`) and the delete-children-before-parent ordering for a FK conflict were both essentially correct on the first try (08-02, Q3 and Q1).
 - Good defensive instinct before a destructive operation: checking whether *other* tables also reference the one being deleted from, not just the obvious one (08-02, Q1).
+- Precise HTTP status-code judgment under a multi-outcome scenario — chose `409 Conflict` over the common junior default of `400` for a state-conflict error, on the first try with no hint (08-03, Q1).
