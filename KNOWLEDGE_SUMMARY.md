@@ -1,6 +1,6 @@
 # Mock Interview — Knowledge Summary
 
-**Covers sessions:** 2026-07-04, 07-05, 07-06, 07-08, 07-10, 07-14, 07-16, 07-29, 08-01, 08-02, 08-03 (11 sessions, 53 questions)
+**Covers sessions:** 2026-07-04, 07-05, 07-06, 07-08, 07-10, 07-14, 07-16, 07-29, 08-01, 08-02, 08-03, 08-04 (12 sessions, 56 questions)
 **Role target:** Junior Backend Developer (Java/Spring Boot)
 
 This is a study reference, not just a log. Each category below gives the full mechanism — not only what was missed in a session, but the concept in enough depth to explain it cold in the real interview, with code where it clarifies the point.
@@ -22,8 +22,9 @@ This is a study reference, not just a log. Each category below gives the full me
 | 08-01 | 6.0/10 | Concurrency, Databases, Git Tooling, Testing/Debugging, Spring/JPA |
 | 08-02 | 4.2/10 | Databases, Spring/JPA, REST API, Concurrency, Testing/Debugging |
 | 08-03 | 5.3/10 | REST API, OOP/LLD, Core Java (3-question session, categories hand-picked for least-tested coverage) |
+| 08-04 | 5.3/10 | Testing/Debugging, Concurrency, REST API (3-question session, seed-random categories, but sub-topics deliberately steered away from already-drilled angles toward untested ones) |
 
-Trend is upward but noisy (4.0 → 6.8 with dips) — scores depend heavily on which specific angle a topic is tested from, not just topic familiarity. Best sessions (07-06, 07-14) both landed a clean 8/10 on **concurrency/race-condition tracing** and handled **CORS/system design** reasonably. Weakest sessions (07-04, 07-05) struggled most with **debugging methodology** and **request-lifecycle/exception fundamentals**. 07-29 was the first session to deliberately target sub-topics *not yet documented here* rather than seed-randomized picks — the dip to 4.6 reflects fresh, previously-untested gaps (merge conflict mechanics, mocking anti-patterns) surfacing for the first time, not regression on known material. 08-01 continued that deliberate-gap-targeting approach and landed 6.0/10 — clean, correct-on-first-try answers on composite-index reasoning and N+1 recognition, but exposed a fresh and fairly deep gap in test-driving a bug fix, plus a partial gap on why in-process locks don't coordinate across app instances. 08-02 kept the seed-random category picker but required every question's *content* to differ from anything already documented here — the dip to 4.2 reflects several previously-untested mechanisms landing at once: self-invocation bypassing `@Transactional`'s proxy, mistaking lock-order-inversion deadlocks for simple contention/timeout, and a non-timing (stack-depth threshold) intermittent bug that didn't fit the timing-bug debugging framework already learned. The one strong showing (7/10, OFFSET-vs-cursor pagination) shows the "reason from first principles about a new mechanism" skill transfers when the scenario doesn't collide with an already-memorized-but-wrong rule. 08-03 broke from the seed algorithm entirely — categories were hand-picked for lowest historical coverage (REST API, OOP/LLD, Core Java) and cut short to 3 questions by request. The 5.3 average was pulled down by a genuine LLD process gap (state modeling skipped, plus a Factory/inventory mislabeling repeat) rather than a misapplied Spring/DB rule — meanwhile the REST API answer (7/10) was the sharpest single answer of the session, correctly choosing `409` over the common junior default of `400` for a state-conflict error with no hint needed.
+Trend is upward but noisy (4.0 → 6.8 with dips) — scores depend heavily on which specific angle a topic is tested from, not just topic familiarity. Best sessions (07-06, 07-14) both landed a clean 8/10 on **concurrency/race-condition tracing** and handled **CORS/system design** reasonably. Weakest sessions (07-04, 07-05) struggled most with **debugging methodology** and **request-lifecycle/exception fundamentals**. 07-29 was the first session to deliberately target sub-topics *not yet documented here* rather than seed-randomized picks — the dip to 4.6 reflects fresh, previously-untested gaps (merge conflict mechanics, mocking anti-patterns) surfacing for the first time, not regression on known material. 08-01 continued that deliberate-gap-targeting approach and landed 6.0/10 — clean, correct-on-first-try answers on composite-index reasoning and N+1 recognition, but exposed a fresh and fairly deep gap in test-driving a bug fix, plus a partial gap on why in-process locks don't coordinate across app instances. 08-02 kept the seed-random category picker but required every question's *content* to differ from anything already documented here — the dip to 4.2 reflects several previously-untested mechanisms landing at once: self-invocation bypassing `@Transactional`'s proxy, mistaking lock-order-inversion deadlocks for simple contention/timeout, and a non-timing (stack-depth threshold) intermittent bug that didn't fit the timing-bug debugging framework already learned. The one strong showing (7/10, OFFSET-vs-cursor pagination) shows the "reason from first principles about a new mechanism" skill transfers when the scenario doesn't collide with an already-memorized-but-wrong rule. 08-03 broke from the seed algorithm entirely — categories were hand-picked for lowest historical coverage (REST API, OOP/LLD, Core Java) and cut short to 3 questions by request. The 5.3 average was pulled down by a genuine LLD process gap (state modeling skipped, plus a Factory/inventory mislabeling repeat) rather than a misapplied Spring/DB rule — meanwhile the REST API answer (7/10) was the sharpest single answer of the session, correctly choosing `409` over the common junior default of `400` for a state-conflict error with no hint needed. 08-04 kept the seed-random category picker (Testing & Debugging, Concurrency & Locking, REST & API Design) but deliberately steered each question's sub-topic away from angles already drilled to 8/10 in prior sessions (the counter race-condition, the timing-bug debugging framework) toward genuinely untested ground — the 5.3 average was pulled down by a flat non-attempt on the flaky-test question (extensive clarifying questions, but no independent answer even after a hint pointing at the weak assertion and multi-behavior test), while the REST API answer (8/10) was again the strongest single answer of the session, correctly reversing a nested-vs-flat route decision the moment the query's scope changed from one customer to all customers, with no hint needed.
 
 ---
 
@@ -470,6 +471,17 @@ The fix belongs at both layers: the SQL query itself needs `LIMIT`/`OFFSET` (or 
 ```
 Correctly resisted the common junior default of reaching for `400 Bad Request` for the "already shipped" case — the request itself is well-formed, it's the *current state* of the resource that conflicts with the action, which is exactly what `409` means, chosen with no hint needed. What was missing: the three response bodies sketched were shaped differently case-by-case (a `response` field holding a message in one, `null` in the others) instead of one consistent envelope. A real API needs a single error/response shape produced by *every* endpoint — normally via a global `@ControllerAdvice`/`@ExceptionHandler` mapping specific exceptions (`OrderNotFoundException`, `OrderAlreadyShippedException`) to status + a consistent body, rather than each controller method hand-rolling its own if/else status logic. Also missing: a stable, machine-readable error **code** (`"code": "ORDER_ALREADY_SHIPPED"`) alongside the human message, so the frontend can safely switch on the code even if the message text changes later — it can't safely pattern-match on message strings.
 
+**Resource modeling — path vs. query parameters, and correctly reversing the design when scope changes. Strongest answer of the 08-04 session.** (08-04, Q3, scored 8/10)
+```
+GET /customers/42/orders             -- one customer's orders: customer id belongs in the PATH,
+                                          because it identifies which resource collection you're scoped to
+GET /customers/42/orders?range=7D    -- add a query param for a filter WITHIN that scope
+
+GET /orders?range=7D                 -- "last 7 days, ALL customers": no single customer to scope to,
+                                          so the route reverts to flat + a query-param filter
+```
+Correctly chose the nested route for a single customer's orders, correctly used a query parameter for the date-range filter rather than another path segment, and — the strongest part of the answer — correctly reversed the route design the instant the scope changed from "one customer" to "all customers," with no hint needed. The general rule, worth stating explicitly rather than only demonstrating through the example: **path parameters identify which specific resource/sub-collection you're scoped to; query parameters filter or modify the result set within that scope.** Minor precision gaps: used "URL body" instead of the correct term **path parameter**; and `range=7D` isn't a self-documenting/standard query shape — a real API would more typically use `?since=2026-07-28` or `?days=7` so the parameter's meaning doesn't depend on parsing a custom duration syntax.
+
 **Also in the topic pool, worth reviewing:** API versioning a field change without breaking existing clients; Jackson basics (`@JsonIgnoreProperties(ignoreUnknown = true)`, date format configuration).
 
 ---
@@ -498,6 +510,30 @@ private int count = 0;
 public synchronized void increment() { count++; }
 ```
 Gap to close even in the 8/10 answers: **name the concept explicitly** ("this is a race condition — specifically a lost update") in the PR comment itself, not just describe the mechanism.
+
+**Thread-unsafe collections under concurrent access — a distinct shape from the counter race, and a fresh, partially-reasoned gap.** (08-04, Q2, scored 5/10)
+```java
+@Service
+public class ProductService {
+    private final Map<Long, Product> cache = new HashMap<>();   // plain HashMap, not thread-safe
+
+    public Product getProduct(Long id) {
+        if (cache.containsKey(id)) { return cache.get(id); }     // check-then-act, non-atomic
+        Product product = productRepository.findById(id).orElseThrow();
+        cache.put(id, product);
+        return product;
+    }
+}
+```
+Correctly identified that concurrent request threads hitting this shared `@Service`-singleton's `HashMap` without synchronization was the root cause — but explained the "wrong/missing entries with no exception" symptom as a DB-vs-cache staleness inconsistency, which is the wrong mechanism: there's no TTL or external update event here, so nothing is "going stale." The real mechanism is that plain `HashMap` makes **no thread-safety guarantee whatsoever** — `put()` can trigger an internal resize/rehash of its bucket array, and if two threads call `put()` at the same instant, they race on that same internal array. This can silently drop or overwrite an entry, or make a concurrent `get()` return `null` for a key that should be there — with zero warning, which is also what throws `ConcurrentModificationException` in the cases that do get caught (a fail-fast check on an internal modification counter, not a guaranteed one). Also reached for manually locking the whole `Map` as the fix, and separately proposed "cache invalidation" — neither is the standard answer here (invalidation solves staleness, not thread-safety). The idiomatic fix is `ConcurrentHashMap`, purpose-built for concurrent access without hand-rolled locking:
+```java
+private final Map<Long, Product> cache = new ConcurrentHashMap<>();
+
+public Product getProduct(Long id) {
+    return cache.computeIfAbsent(id, key -> productRepository.findById(key).orElseThrow());
+}
+```
+`computeIfAbsent` also fixes a second, subtler bug in the original: `containsKey` → `get` → `put` is itself a non-atomic check-then-act (two threads can both miss the cache and both hit the DB) — `computeIfAbsent` makes the lookup-or-compute atomic per key. Reflex: any mutable `Map`/`List`/`Set` field in a Spring singleton bean touched by multiple request threads → reach for the matching `java.util.concurrent` type before writing a manual `synchronized` block.
 
 **The most valuable drill: telling apart three distinct concurrency problem shapes.** All three were tested and each time the *wrong* tool was reached for — this is the single highest-leverage thing to fix before the real interview.
 
@@ -566,7 +602,7 @@ The Redis `SET key value NX PX <ttl>` pattern (set-if-not-exists with an expiry)
 
 ### Testing & Debugging
 
-**Consistently the weakest category** (3/10, 4/10, 4/10 across three sessions) — the same underlying scenario shape recurred each time: an intermittent, timing-dependent bug ("double-click submit twice fast," "occasionally in prod") that can't be reproduced by normal manual testing.
+**Consistently the weakest category** (3/10, 4/10, 4/10, 3/10 across four sessions) — the same underlying scenario shape recurred each time: an intermittent, timing-dependent bug ("double-click submit twice fast," "occasionally in prod") that can't be reproduced by normal manual testing.
 
 **The correct approach, step by step — the sequence itself is the thing being tested:**
 1. **Reproduce reliably first.** A debugger, and honestly most tools, are close to useless until the bug can be triggered on demand. If the report includes a trigger ("double-click," "fast," "sometimes"), treat that as the literal repro recipe and recreate it mechanically — e.g. script two near-simultaneous requests (Postman runner, a small script, or a debugger breakpoint that pauses request A mid-flight while request B runs) rather than clicking a button quickly by hand, which rarely hits the exact race window.
@@ -629,7 +665,27 @@ void cancelOrder_whenAlreadyShipped_doesNotTriggerRefund() {
 ```
 Why the order matters, stated explicitly: a failing test *before* the fix proves the bug is genuinely reproduced in a repeatable, automated way (not just "I read the code and it looks wrong"); a passing test *after* proves the fix actually addresses it; and the test then catches this exact bug forever if a future refactor reintroduces it — instead of another support ticket months later. This is the single highest-priority testing gap to close before the real interview (see Priority List).
 
-**Also in the topic pool, worth reviewing:** unit vs integration tests (what each actually catches — the testing pyramid); arrange/act/assert structure and one-behavior-per-test naming; what makes a test flaky and why a flaky test is worse than no test (erodes trust in the whole suite); reading a stack trace to find the root cause among framework noise.
+**Flaky test diagnosis, weak assertions, and one-behavior-per-test — a genuine non-attempt.** (08-04, Q1, scored 3/10 — extensive clarifying questions asked, but no independent answer even after a hint)
+```java
+@Test
+void testDiscount() {
+    Order order = new Order();
+    order.addItem(new Item("Widget", 100.0));
+    order.addItem(new Item("Gadget", 50.0));
+    order.applyCoupon("SAVE10");
+    assertTrue(order.getTotal() < 200.0);        // passes even with ZERO discount applied
+    assertNotNull(order.getAppliedCoupon());
+    assertEquals(2, order.getItems().size());    // fails ~1/20 CI runs, no local repro, no code changes
+}
+```
+Three distinct problems stacked in one PR-review scenario, none of which were reached independently:
+1. **One test, three behaviors.** The method name (`testDiscount`) doesn't say which behavior is under test, and it checks three unrelated things (total, coupon stored, item count) in one method — a failure requires reading the stack trace closely just to know *what* broke. Fix: one behavior per test, named for that behavior (`appliesCoupon_reducesTotalByExactPercentage()`), item-count assertions don't belong in a discount test at all.
+2. **The assertion doesn't test what it claims to.** `assertTrue(total < 200.0)` would pass even if the coupon did nothing — pre-discount total is already $150. A loose bound like this gives false confidence. Fix: assert the exact expected value with a small tolerance — `assertEquals(135.0, order.getTotal(), 0.001)`.
+3. **A flaky assertion with zero code changes and no local repro is a test-isolation smell, not a coincidence.** A freshly constructed `new Order()` should never end up with a 3rd item from code this method never calls. The likely cause is shared mutable state leaking across tests — a static/shared item catalog, a fixture reused across test methods without resetting, a test DB not rolled back between runs, or parallel test execution touching shared state. The fix is finding and eliminating that shared state (fresh data per test, proper `@BeforeEach` reset) — never loosening the assertion or re-running until green, since that just hides the bug and erodes trust in the whole suite.
+
+Reflex for "test fails sometimes, no code changes, can't repro locally": ask *"is this test's setup actually isolated, or could it be touching something another test also touches?"* before assuming it's a timing race — plain object mutation bugs in tests are usually about shared fixtures, not concurrency.
+
+**Also in the topic pool, worth reviewing:** unit vs integration tests (what each actually catches — the testing pyramid); reading a stack trace to find the root cause among framework noise.
 
 ---
 
@@ -816,6 +872,8 @@ Ranked by (a) how wrong the current understanding is, and (b) how likely it is t
 17. **Naming and precision polish**: state the **leftmost-prefix rule** explicitly for composite indexes; name **lazy loading** explicitly as N+1's root cause; distinguish "index used, but must walk and discard offset rows" from "full table scan" when explaining OFFSET pagination cost; remember the **compound-cursor tie-breaker** (`(created_at, id)`) for keyset pagination correctness. All reasoned correctly or nearly so — lowest priority, just needs sharper naming. (08-01, 08-02.)
 18. **LLD state modeling as an explicit step** — before sketching classes, separately list what state the system must track (transient vs. persistent) and who owns it; skipping this step let the entire state half of the vending-machine question go unanswered. (08-03.)
 19. **Centralized/global error-response contract** — one shared envelope + stable error code produced via `@ControllerAdvice`/`@ExceptionHandler`, not a per-endpoint ad hoc shape; the status-code judgment itself (404/409 across a multi-outcome action) is already strong. (08-03 — lower priority, mostly a completeness item.)
+20. **Flaky test root-causing** — a flaky assertion with no code changes and no local repro is almost always a test-isolation/shared-mutable-state problem (a fixture or catalog leaking across tests), not a coincidence to shrug off; combine with one-behavior-per-test and asserting exact expected values instead of loose bounds. (08-04 — a flat non-attempt even after a hint; Testing & Debugging remains the weakest category overall across four sessions now, so this is high-priority despite being numbered last here.)
+21. **Thread-unsafe collections vs. `ConcurrentHashMap`** — a plain `HashMap`/`ArrayList`/`HashSet` field in a Spring singleton bean touched by multiple request threads is a distinct gap from the counter-race pattern already handled well; know `ConcurrentHashMap` + `computeIfAbsent` as the default fix, and that the "wrong/missing entries" symptom is internal structural corruption from concurrent `put()`/resize, not a cache-staleness problem that invalidation would fix. (08-04 — root cause partially reasoned, but conflated with staleness and reached for manual locking over the idiomatic collection type.)
 
 ## 5. Consistent Strengths (keep doing these)
 
@@ -830,3 +888,4 @@ Ranked by (a) how wrong the current understanding is, and (b) how likely it is t
 - Once the right high-level technique is identified, producing genuinely correct, concrete code for it on a brand-new scenario rather than a generic sketch — e.g. the keyset-pagination SQL (`WHERE created_at < ? ORDER BY ... LIMIT 25`) and the delete-children-before-parent ordering for a FK conflict were both essentially correct on the first try (08-02, Q3 and Q1).
 - Good defensive instinct before a destructive operation: checking whether *other* tables also reference the one being deleted from, not just the obvious one (08-02, Q1).
 - Precise HTTP status-code judgment under a multi-outcome scenario — chose `409 Conflict` over the common junior default of `400` for a state-conflict error, on the first try with no hint (08-03, Q1).
+- Correctly reversing a design decision the instant a stated constraint changed, rather than defending the original answer — reversed a nested-vs-flat REST route the moment the scope changed from one customer to all customers, no hint needed (08-04, Q3).

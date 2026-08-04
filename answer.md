@@ -1,15 +1,14 @@
-i think first i will create the VendingManager class
+i think i will keep the second one for my answer because we should keep the id of customer in the body of URL bot in the parameter
 
-which will have 2 DI
+the parameter i think it shoud use for filter or something like get the range time
 
-FormulaManager for managing the coin get in the machine
-DrinkFactory for dispense the drink that customer choose
+and my answer will change if the request is get all orders placed in the last 7 days across
 
-and the Drink interface which have 3 field 
-code, price, name
-and the class Drink that implemnent the Drink class
-like Pepsi, Coca, Tea, Coffee
+i will use the first one with another parameter
 
-when you get the coin in and type the code of drink the FormulaManager will handle whether you have enough fund or insufficient fund it will throw the error and the Vending Manager will handle the error
+GET /orders?range=7D;
 
-so if you have enough we will go to the DrinkFactory to dispense the drink and it will match the suitable code if it have give it to customer else out of stock or no code matching throw exception so VendingManager will handle it
+i think it should like or if we want to get the orders or specific customer in the last 7 days 
+
+we can mix to of them like this 
+GET /customers/42/orders?range=7D
