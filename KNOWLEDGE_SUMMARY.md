@@ -1,6 +1,6 @@
 # Mock Interview — Knowledge Summary
 
-**Covers sessions:** 2026-07-04, 07-05, 07-06, 07-08, 07-10, 07-14, 07-16, 07-29, 08-01, 08-02, 08-03, 08-04 (12 sessions, 56 questions)
+**Covers sessions:** 2026-07-04, 07-05, 07-06, 07-08, 07-10, 07-14, 07-16, 07-29, 08-01, 08-02, 08-03, 08-04, 08-05 (13 sessions, 59 questions)
 **Role target:** Junior Backend Developer (Java/Spring Boot)
 
 This is a study reference, not just a log. Each category below gives the full mechanism — not only what was missed in a session, but the concept in enough depth to explain it cold in the real interview, with code where it clarifies the point.
@@ -23,8 +23,9 @@ This is a study reference, not just a log. Each category below gives the full me
 | 08-02 | 4.2/10 | Databases, Spring/JPA, REST API, Concurrency, Testing/Debugging |
 | 08-03 | 5.3/10 | REST API, OOP/LLD, Core Java (3-question session, categories hand-picked for least-tested coverage) |
 | 08-04 | 5.3/10 | Testing/Debugging, Concurrency, REST API (3-question session, seed-random categories, but sub-topics deliberately steered away from already-drilled angles toward untested ones) |
+| 08-05 | 5.7/10 | Spring/JPA, Testing/Debugging, Git Tooling (3-question session, seed-random categories, sub-topics steered to fresh angles: `LazyInitializationException`, testing pyramid, merge vs. rebase) |
 
-Trend is upward but noisy (4.0 → 6.8 with dips) — scores depend heavily on which specific angle a topic is tested from, not just topic familiarity. Best sessions (07-06, 07-14) both landed a clean 8/10 on **concurrency/race-condition tracing** and handled **CORS/system design** reasonably. Weakest sessions (07-04, 07-05) struggled most with **debugging methodology** and **request-lifecycle/exception fundamentals**. 07-29 was the first session to deliberately target sub-topics *not yet documented here* rather than seed-randomized picks — the dip to 4.6 reflects fresh, previously-untested gaps (merge conflict mechanics, mocking anti-patterns) surfacing for the first time, not regression on known material. 08-01 continued that deliberate-gap-targeting approach and landed 6.0/10 — clean, correct-on-first-try answers on composite-index reasoning and N+1 recognition, but exposed a fresh and fairly deep gap in test-driving a bug fix, plus a partial gap on why in-process locks don't coordinate across app instances. 08-02 kept the seed-random category picker but required every question's *content* to differ from anything already documented here — the dip to 4.2 reflects several previously-untested mechanisms landing at once: self-invocation bypassing `@Transactional`'s proxy, mistaking lock-order-inversion deadlocks for simple contention/timeout, and a non-timing (stack-depth threshold) intermittent bug that didn't fit the timing-bug debugging framework already learned. The one strong showing (7/10, OFFSET-vs-cursor pagination) shows the "reason from first principles about a new mechanism" skill transfers when the scenario doesn't collide with an already-memorized-but-wrong rule. 08-03 broke from the seed algorithm entirely — categories were hand-picked for lowest historical coverage (REST API, OOP/LLD, Core Java) and cut short to 3 questions by request. The 5.3 average was pulled down by a genuine LLD process gap (state modeling skipped, plus a Factory/inventory mislabeling repeat) rather than a misapplied Spring/DB rule — meanwhile the REST API answer (7/10) was the sharpest single answer of the session, correctly choosing `409` over the common junior default of `400` for a state-conflict error with no hint needed. 08-04 kept the seed-random category picker (Testing & Debugging, Concurrency & Locking, REST & API Design) but deliberately steered each question's sub-topic away from angles already drilled to 8/10 in prior sessions (the counter race-condition, the timing-bug debugging framework) toward genuinely untested ground — the 5.3 average was pulled down by a flat non-attempt on the flaky-test question (extensive clarifying questions, but no independent answer even after a hint pointing at the weak assertion and multi-behavior test), while the REST API answer (8/10) was again the strongest single answer of the session, correctly reversing a nested-vs-flat route decision the moment the query's scope changed from one customer to all customers, with no hint needed.
+Trend is upward but noisy (4.0 → 6.8 with dips) — scores depend heavily on which specific angle a topic is tested from, not just topic familiarity. Best sessions (07-06, 07-14) both landed a clean 8/10 on **concurrency/race-condition tracing** and handled **CORS/system design** reasonably. Weakest sessions (07-04, 07-05) struggled most with **debugging methodology** and **request-lifecycle/exception fundamentals**. 07-29 was the first session to deliberately target sub-topics *not yet documented here* rather than seed-randomized picks — the dip to 4.6 reflects fresh, previously-untested gaps (merge conflict mechanics, mocking anti-patterns) surfacing for the first time, not regression on known material. 08-01 continued that deliberate-gap-targeting approach and landed 6.0/10 — clean, correct-on-first-try answers on composite-index reasoning and N+1 recognition, but exposed a fresh and fairly deep gap in test-driving a bug fix, plus a partial gap on why in-process locks don't coordinate across app instances. 08-02 kept the seed-random category picker but required every question's *content* to differ from anything already documented here — the dip to 4.2 reflects several previously-untested mechanisms landing at once: self-invocation bypassing `@Transactional`'s proxy, mistaking lock-order-inversion deadlocks for simple contention/timeout, and a non-timing (stack-depth threshold) intermittent bug that didn't fit the timing-bug debugging framework already learned. The one strong showing (7/10, OFFSET-vs-cursor pagination) shows the "reason from first principles about a new mechanism" skill transfers when the scenario doesn't collide with an already-memorized-but-wrong rule. 08-03 broke from the seed algorithm entirely — categories were hand-picked for lowest historical coverage (REST API, OOP/LLD, Core Java) and cut short to 3 questions by request. The 5.3 average was pulled down by a genuine LLD process gap (state modeling skipped, plus a Factory/inventory mislabeling repeat) rather than a misapplied Spring/DB rule — meanwhile the REST API answer (7/10) was the sharpest single answer of the session, correctly choosing `409` over the common junior default of `400` for a state-conflict error with no hint needed. 08-04 kept the seed-random category picker (Testing & Debugging, Concurrency & Locking, REST & API Design) but deliberately steered each question's sub-topic away from angles already drilled to 8/10 in prior sessions (the counter race-condition, the timing-bug debugging framework) toward genuinely untested ground — the 5.3 average was pulled down by a flat non-attempt on the flaky-test question (extensive clarifying questions, but no independent answer even after a hint pointing at the weak assertion and multi-behavior test), while the REST API answer (8/10) was again the strongest single answer of the session, correctly reversing a nested-vs-flat route decision the moment the query's scope changed from one customer to all customers, with no hint needed. 08-05 continued the seed-random category picker with sub-topics steered to genuinely fresh ground (Spring/JPA, Testing & Debugging, Git Tooling) — the 5.7 average was pulled down by the weakest single answer of the session (4/10, merge vs. rebase), where basic mechanics had to be explained from scratch and a fresh misconception surfaced (believing rebase preserves "who did it" better than merge, when both preserve authorship identically); the strongest answer (7/10, testing-pyramid restructuring) showed a genuine mid-answer self-correction — refining an initially-imprecise rule ("use unit tests when there's a lot of logic") to the sharper "DB/API call in the test means integration test" without being prompted to.
 
 ---
 
@@ -41,6 +42,7 @@ These aren't just gaps — they were stated as fact and are incorrect. Fix these
 - **"Run the existing tests" is not the same as test-driving a bug fix.** (08-01, Q4) Asked what to do before fixing a reported bug, answered that checking/running the existing tests was enough and "we don't need to rewrite the test." But if a bug reached production, there is almost certainly no existing test covering that exact case — otherwise CI would have caught it before it shipped. The correct first step is to **write a new test that encodes the exact bug**, confirm it **fails** against current code (proof the bug is genuinely reproduced), then fix the code and confirm it **passes** (proof the fix works) — and that test then stays in the suite as a permanent regression guard. Needed two hints and still didn't reach this independently.
 - **A confidently-recalled `@Transactional` rule was applied to the wrong bug.** (08-02, Q2) Given a scenario where `placeOrder` calls `this.saveOrder(order)` in the same class, and the `@Transactional` `saveOrder` doesn't roll back on failure, answered that the cause must be a checked exception needing `rollbackFor = Exception.class` — reusing the correct-in-general rule from 07-16 without checking whether it actually fit. The real cause here is **self-invocation bypassing the Spring AOP proxy**: `@Transactional` only takes effect when the call comes from outside the bean, through the proxy; a call on `this` from inside the same class never reaches it, so no transaction is opened at all and `rollbackFor` is irrelevant. This is a distinct, common Spring gotcha from the checked/unchecked rollback rule — don't conflate "the annotation exists on the method" with "the annotation is actually in effect for this call path."
 - **A deadlock is not the same thing as lock contention/timeout under load.** (08-02, Q4) Given two endpoints that pessimistically lock the same two rows in opposite orders (`orders`→`inventory` vs. `inventory`→`orders`), and told this throws a real database deadlock error, answered that it was really just many concurrent users (e.g. 500) queueing for the same lock until one of them times out and mistakes it for a deadlock. That's a description of ordinary serialized waiting, not a deadlock. A deadlock is a **circular wait**: transaction A holds what B needs next and vice versa, forming a cycle with no possible progress — the database's deadlock detector finds this almost immediately (not after a load-dependent timeout) and kills one transaction to break the cycle. Fix is **consistent lock-acquisition ordering** across every code path that locks the same rows, not a load-capacity argument or a wholesale switch to optimistic locking.
+- **`git rebase` does not preserve authorship any better than `git merge` does.** (08-05, Q3) Picked rebase specifically because it would supposedly let you "know who did it" for later bug-fixing help — but both merge and rebase preserve each commit's original author metadata identically; `git blame` works the same either way. The real, distinct reasons to prefer rebase (cleaner linear history, easier-to-read PR diff) don't include authorship tracking at all.
 - **Deleting rows to satisfy a foreign key constraint isn't automatically the correct fix.** (08-02, Q1) Given a GDPR "delete my account" request blocked by a FK from `orders.customer_id`, proposed deleting the referencing `orders` rows first, then the customer — technically resolves the constraint, but orders are usually financial/legal records with a retention requirement that survives account deletion. The standard real-world pattern is the reverse of what was proposed: keep the orders, **anonymize the customer's PII** instead of deleting the customer row outright (or point `orders.customer_id` at a placeholder via `ON DELETE SET NULL`). Also stated the reason for keeping the FK as "it makes the query easier" rather than referential integrity (preventing orphaned rows pointing at nothing).
 
 ---
@@ -419,6 +421,42 @@ public class OrderPersistenceService {
 ```
 Reflex: any time `@Transactional` "isn't working," ask *"is this method self-invoked — called via `this.method()` or a bare unqualified call from another method in the same class?"* before touching `rollbackFor` or exception types at all.
 
+**`LazyInitializationException` — a third distinct `@Transactional`-adjacent gotcha, reached only after two hints.** (08-05, Q1, scored 6/10)
+```java
+@Service
+public class OrderService {
+    @Transactional
+    public Order getOrder(Long id) {
+        return orderRepository.findById(id).orElseThrow();   // Customer is lazy — not loaded yet
+    }   // <-- transaction commits and Session closes HERE, the instant this method returns
+}
+
+@RestController
+public class OrderController {
+    public OrderResponse getOrder(@PathVariable Long id) {
+        Order order = orderService.getOrder(id);
+        return new OrderResponse(order.getCustomer().getName());  // throws LazyInitializationException:
+    }                                                             // no Session left to fetch Customer through
+}
+```
+The service method itself returns successfully — the failure happens strictly later, in the controller, because the `Session` a lazy proxy needs to fetch its data through only lives as long as the `@Transactional` method's transaction. The moment that method returns, the transaction commits and the Session closes; the `Order` object handed back is now **detached**. Any association not already initialized *inside* that transaction (like the lazy `customer`) can never be initialized afterward — accessing a real field on it (`getName()`) throws. Note: accessing just the FK scalar (`order.getCustomer().getId()`) is safe even on a detached proxy, since JPA can supply the id without touching the database at all — only a non-id field triggers the failing fetch.
+
+Two standard fixes, plus the one usually preferred in production:
+```java
+// Fix 1 — eagerly load the association inside the still-open transaction
+@Query("SELECT o FROM Order o JOIN FETCH o.customer WHERE o.id = :id")
+Order findByIdWithCustomer(@Param("id") Long id);
+
+// Fix 2 — map to a DTO while the transaction/session is still open,
+// so the controller only ever serializes plain fields, never a lazy proxy
+@Transactional
+public OrderDto getOrder(Long id) {
+    Order order = orderRepository.findById(id).orElseThrow();
+    return new OrderDto(order.getId(), order.getCustomer().getName());  // access happens IN the transaction
+}
+```
+Anti-pattern worth knowing by name: **"Open Session in View"** — extending the Hibernate session across the whole HTTP request "fixes" this exception by masking it, at the cost of hidden N+1 queries at render time; Spring recommends disabling it (`spring.jpa.open-in-view=false`) and fixing the real cause (fetch explicitly, or use a DTO) instead. Reflex: the moment an entity leaves its `@Transactional` method, treat every non-eagerly-loaded association as off-limits.
+
 ---
 
 ### REST & API Design
@@ -685,7 +723,33 @@ Three distinct problems stacked in one PR-review scenario, none of which were re
 
 Reflex for "test fails sometimes, no code changes, can't repro locally": ask *"is this test's setup actually isolated, or could it be touching something another test also touches?"* before assuming it's a timing race — plain object mutation bugs in tests are usually about shared fixtures, not concurrency.
 
-**Also in the topic pool, worth reviewing:** unit vs integration tests (what each actually catches — the testing pyramid); reading a stack trace to find the root cause among framework noise.
+**Unit vs. integration tests — correct restructuring, imprecise general rule, self-corrected once mid-answer.** (08-05, Q2, scored 7/10)
+```java
+// Given: a "unit test" for pure calculation logic that boots the whole app
+// and hits a real DB — 8 seconds per test, 15 minutes of CI for ~200 of them
+@SpringBootTest
+class PriceCalculatorTest {
+    @Autowired PriceCalculator calculator;   // real bean, real DB-backed PriceRepository
+    @Test void calculatesDiscountedPrice() { ... }
+}
+
+// Restructured — no app context, no real DB, isolated logic only
+@ExtendWith(MockitoExtension.class)
+class PriceCalculatorTest {
+    @Mock PriceRepository priceRepository;
+    @InjectMocks PriceCalculator calculator;
+    @Test void calculatesDiscountedPrice() {
+        when(priceRepository.findBasePrice(any())).thenReturn(100.0);
+        assertEquals(90.0, calculator.calculate(...), 0.001);
+        verify(priceRepository).findBasePrice(any());   // also verify orchestration, not just the number
+    }
+}
+```
+Correctly identified the fix (swap `@SpringBootTest` for `@ExtendWith(MockitoExtension.class)` + mocks) and what a unit test should check: internal logic/branching, that it calls its collaborators correctly (`verify()`), and exception paths — none of which need a real DB or app context. The general rule volunteered first ("use a unit test when the method has a lot of business logic") is the wrong lens — almost every method has *some* logic. Self-corrected unprompted to "if there's a DB call or API call, I'll use an integration test," which is much closer to the real distinguishing question: **what boundary is actually being verified** — pure logic in isolation (mock every collaborator) → unit test; a real interaction across a boundary (does this query actually return the right rows against a real schema) → integration test. Missing piece: the **testing pyramid** shape itself — many fast, isolated unit tests at the base, a smaller number of integration tests validating real boundaries, very few end-to-end tests at the top. The fix here isn't "never use `@SpringBootTest`" — it's "use it sparingly for the few things that genuinely need a real DB/context, and keep pure-logic classes on fast unit tests," with the repository query itself still getting its own (much smaller number of) integration test somewhere else.
+
+Reflex for any test: ask *"which collaborators am I trusting vs. which one am I actually verifying?"* Everything trusted gets mocked; only the thing under test runs for real. If the honest answer is "all of them, including the DB," that's an integration test by design — fine, just don't write 200 of them.
+
+**Also in the topic pool, worth reviewing:** reading a stack trace to find the root cause among framework noise.
 
 ---
 
@@ -845,7 +909,28 @@ Given a scenario where a Spring Boot app boots locally but crashes in staging wi
 
 Two-lens reflex: "config that differs by environment but isn't secret" → Spring profiles; "actual secrets" → platform-injected env vars / secret manager, never a repo file.
 
-**Also in the topic pool, worth reviewing:** merge vs rebase at a basic level; what a reviewer is actually looking for in a PR, and how to respond to review feedback without getting defensive.
+**Merge vs. rebase — mechanics needed a full explanation from scratch, then a fresh authorship misconception.** (08-05, Q3, scored 4/10 — weakest answer of the session)
+
+Given a scenario (four days on a feature branch, five teammate commits landed on `main`, need to update before opening a PR) and asked to choose between `git merge main` and `git rebase main`: did not recall the mechanics of either without a full explanation first.
+
+```
+git merge main            git rebase main
+     A---B---C (main)          A---B---C (main)
+    /         \                         \
+D---E (yours)  M  <- new merge commit    D'---E' (yours, replayed
+                   with 2 parents           on top of C, NEW hashes,
+                   (history stays          same content — straight-
+                   non-linear)             line/linear history)
+```
+`merge` leaves your existing commits untouched and adds a new two-parent merge commit on top, tying the two histories together — non-linear, but nothing is rewritten. `rebase` sets your commits aside and replays them one at a time on top of `main`'s current tip — same content, but every commit gets a **brand-new hash**, producing a straight linear history.
+
+Picked rebase — a reasonable instinct for this scenario — but the stated reason was a genuine misconception: that rebase "keeps the history of who did the change" so you'd know who to ask for help on a bug, implying merge doesn't. **Both merge and rebase preserve each commit's original author metadata identically** — `git blame`/`git log --author` works the same either way; rewriting a commit's hash during rebase does not touch its author field. The actual reasons to prefer rebase here are a cleaner, linear history and an easier-to-read PR diff — not authorship tracking.
+
+When asked for the case where you'd deliberately avoid rebase, landed only on a vague "it will conflict" after a hint pointing at what happens once a teammate has already pulled and built on your original commits. The precise mechanism: because rebase mints new hashes for every commit, a teammate who already pulled your branch and committed on top of the *old* hashes is now diverged from your rebased branch at the hash level — force-pushing your rebase pulls the rug out from under their local branch (their commits' parents no longer exist upstream), risking lost or duplicated work when they try to reconcile it. This is not an ordinary merge conflict; it's a history-rewrite problem. **Rule to memorize: never rebase (and force-push) a branch other people have already pulled and built on** — rebase freely on a private branch only you use; once it's shared, prefer merge, or coordinate the rebase explicitly with everyone who has it.
+
+Reflex before any rebase: *"has anyone else pulled this branch?"* If yes, don't rebase it — or if you must, make sure everyone re-syncs and knows it's coming first.
+
+**Also in the topic pool, worth reviewing:** what a reviewer is actually looking for in a PR, and how to respond to review feedback without getting defensive.
 
 ---
 
@@ -874,6 +959,9 @@ Ranked by (a) how wrong the current understanding is, and (b) how likely it is t
 19. **Centralized/global error-response contract** — one shared envelope + stable error code produced via `@ControllerAdvice`/`@ExceptionHandler`, not a per-endpoint ad hoc shape; the status-code judgment itself (404/409 across a multi-outcome action) is already strong. (08-03 — lower priority, mostly a completeness item.)
 20. **Flaky test root-causing** — a flaky assertion with no code changes and no local repro is almost always a test-isolation/shared-mutable-state problem (a fixture or catalog leaking across tests), not a coincidence to shrug off; combine with one-behavior-per-test and asserting exact expected values instead of loose bounds. (08-04 — a flat non-attempt even after a hint; Testing & Debugging remains the weakest category overall across four sessions now, so this is high-priority despite being numbered last here.)
 21. **Thread-unsafe collections vs. `ConcurrentHashMap`** — a plain `HashMap`/`ArrayList`/`HashSet` field in a Spring singleton bean touched by multiple request threads is a distinct gap from the counter-race pattern already handled well; know `ConcurrentHashMap` + `computeIfAbsent` as the default fix, and that the "wrong/missing entries" symptom is internal structural corruption from concurrent `put()`/resize, not a cache-staleness problem that invalidation would fix. (08-04 — root cause partially reasoned, but conflated with staleness and reached for manual locking over the idiomatic collection type.)
+22. **Merge vs. rebase mechanics, and the shared-branch force-push danger** — needed a full from-scratch explanation of what each command actually does; also a fresh confident misconception that rebase "preserves who did it" better than merge (both preserve authorship identically). The real reason to avoid rebase once a branch is shared: it mints new commit hashes, so force-pushing it after a teammate has pulled and built on the old hashes risks lost/duplicated work — not an ordinary merge conflict. (08-05 — weakest score of that session, daily-use tooling that should be automatic.)
+23. **`LazyInitializationException` / entity detachment** — needed two hints to connect `@Transactional`'s transaction boundary to why the Hibernate session is already closed by the time a controller touches a lazy association returned from the service layer. Know unprompted: an entity detaches the instant its owning transaction commits; only non-id fields on an uninitialized association trigger the failing fetch. Standard fixes: `JOIN FETCH` inside the transaction, or map to a DTO before returning — plus know "Open Session in View" by name as the anti-pattern that masks rather than fixes this. (08-05.)
+24. **Testing pyramid vocabulary and shape** — frame unit vs. integration around *what boundary is being verified*, not "how much business logic" a method has; know the pyramid shape (many unit tests, fewer integration tests, very few end-to-end) and that mocking a repository in one test doesn't mean the real query never gets its own, separate integration test. (08-05 — lower priority; the practical restructuring instinct was already correct, this is a vocabulary/completeness gap.)
 
 ## 5. Consistent Strengths (keep doing these)
 
@@ -889,3 +977,4 @@ Ranked by (a) how wrong the current understanding is, and (b) how likely it is t
 - Good defensive instinct before a destructive operation: checking whether *other* tables also reference the one being deleted from, not just the obvious one (08-02, Q1).
 - Precise HTTP status-code judgment under a multi-outcome scenario — chose `409 Conflict` over the common junior default of `400` for a state-conflict error, on the first try with no hint (08-03, Q1).
 - Correctly reversing a design decision the instant a stated constraint changed, rather than defending the original answer — reversed a nested-vs-flat REST route the moment the scope changed from one customer to all customers, no hint needed (08-04, Q3).
+- Self-correcting an initial rule mid-answer without being prompted — refined "use unit tests when there's a lot of logic" to "DB/API call in the test means integration test" on the testing-pyramid question, unprompted (08-05, Q2).
