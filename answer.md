@@ -1,4 +1,7 @@
-i think when get the thread it will cost the memory,
-the thread for the current request and the thread for send confirmationso if have 5000 request in few minute it can have 10000 thread so if each thread can not handle it, it also create and the memory have full space and having out of memory error so 
+because we use the the composite index so the first condition 
+'customer_id = 42' is satifie so it will have the Index Scan but when goes to the second condition it is 'YEAR(created_at) = 2026' it sort the data  of created_at is TIMESTAMP so when use the YEAR() function is like the char so it can not match and it need to full scan the table to find some column that YEAR(created_at) = 2026 of customer have id is 42 in the table have 20 million row it will take much time 
 
-in this one i can use MessegeQueue for the send confirmation by email so that we just need create the MQ and push to it we don't need to create the new thread 
+so if we want to fix we should compare the created_at with TIMESTAMP
+
+i will re-write the query like this
+SELECT * FROM orders WHERE customer_id = 42 AND created_at >= '2026-01-01 00:00:00' AND created_at < '2027-01-01 00:00:00';
