@@ -1,7 +1,8 @@
-because we use the the composite index so the first condition 
-'customer_id = 42' is satifie so it will have the Index Scan but when goes to the second condition it is 'YEAR(created_at) = 2026' it sort the data  of created_at is TIMESTAMP so when use the YEAR() function is like the char so it can not match and it need to full scan the table to find some column that YEAR(created_at) = 2026 of customer have id is 42 in the table have 20 million row it will take much time 
+no it not doing the same thing
 
-so if we want to fix we should compare the created_at with TIMESTAMP
+the first is stateful and the second is stateless 
 
-i will re-write the query like this
-SELECT * FROM orders WHERE customer_id = 42 AND created_at >= '2026-01-01 00:00:00' AND created_at < '2027-01-01 00:00:00';
+so when we use two way to handle the login it will conflict
+
+because the JWT will attach to header and session id is also but when the request go to my app i need to handle both of them , validate the session_id and jwt so it will make the app more complex and hard
+in my opinion i will pick JWT for both because the jwt is stateless it don't save any info about the user like using session in statefull, it just need validate the JWT using the secret so when valid it just pass through ortherwise the statefull will make our memory in server is higher

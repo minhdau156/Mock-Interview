@@ -486,6 +486,33 @@ Fix belongs at both layers: the SQL query needs `LIMIT`/`OFFSET` or cursor pagin
 ```
 `400` means the request itself is malformed; `409` means the request is well-formed but the *current state* of the resource conflicts with the action — the correct code for "already shipped, can't cancel." Pair this with a single consistent error envelope across every endpoint (normally via a global `@ControllerAdvice`/`@ExceptionHandler` mapping specific exceptions to status + body), plus a stable, machine-readable error **code** (`"code": "ORDER_ALREADY_SHIPPED"`) alongside the human message, so a frontend can safely switch on the code rather than pattern-matching message text.
 
+**A `POST` that creates a resource — 200 vs. 201.**
+```java
+// Ambiguous: 200 only says "it worked," not "a new thing now exists"
+@PostMapping("/orders")
+public ResponseEntity<OrderResponse> createOrder(@RequestBody CreateOrderRequest request) {
+    Order order = orderService.create(request);
+    return ResponseEntity.ok(toResponse(order));            // 200 OK
+}
+
+// Correct: 201 signals creation, Location header points at the new resource
+@PostMapping("/orders")
+public ResponseEntity<OrderResponse> createOrder(@RequestBody CreateOrderRequest request) {
+    Order order = orderService.create(request);
+    URI location = URI.create("/orders/" + order.getId());
+    return ResponseEntity.created(location).body(toResponse(order));   // 201 Created
+}
+```
+`200` just means the request succeeded; `201` means it succeeded *and created a new resource*, which is the more precise signal a client actually wants from a creation endpoint.
+
+**400 vs. 422 vs. 409 — three different reasons a request can fail.**
+```
+400 Bad Request          -- the request itself is malformed (missing field, wrong type, invalid JSON)
+422 Unprocessable Entity  -- well-formed, but fails a business/semantic rule (an order with zero items)
+409 Conflict              -- well-formed and valid, but conflicts with the resource's CURRENT STATE
+```
+Reflex question: *"Is something structurally wrong with the request (400), is it well-formed but breaking a rule (422), or is the request fine but the resource's current state won't allow it (409)?"* A common junior mistake is reaching for `409` on a plain validation failure like "order has no items" — that's `400`/`422`, since there's no existing resource state being conflicted with; `409` is reserved for things like "already shipped, can't cancel."
+
 **Resource modeling — path vs. query parameters.**
 ```
 GET /customers/42/orders             -- one customer's orders: id in the PATH (scopes the collection)
@@ -767,6 +794,19 @@ A malicious `name` value could break out of the string literal and inject additi
 // Insecure: user=John;role=admin  stored directly in a plain cookie
 ```
 The sharpest risk with storing role/identity in a plain cookie isn't primarily an outside attacker reading it (confidentiality) — it's that the *same logged-in user* can open DevTools and edit `role=admin` onto their own cookie to self-escalate privileges (an **integrity/tampering** problem, no outside attacker needed). A JWT fixes this because it is **cryptographically signed** (HMAC/RSA): if a client edits any claim without the server's secret key, the signature no longer matches on verification, and the request is rejected outright — "attach it to a header and validate server-side" alone isn't the mechanism; the signature check is. The sibling standard answer is a traditional **server-side session** — the cookie holds only an opaque random session ID, and the actual role/user data lives server-side (DB/Redis), looked up per request. Trade-off: JWT avoids a per-request lookup but can't be revoked instantly; a session ID is trivially revocable but costs a lookup.
+
+**Session cookies vs. JWTs — stateful vs. stateless is the first-level answer, but not what actually decides it.**
+```
+                        Session cookie                       JWT
+Attached how?           browser auto-sends via Cookie header  client code manually sets Authorization header
+Where's the state?      server-side (DB/Redis) — cookie is    entirely inside the token itself —
+                         just an opaque lookup key             server tracks nothing
+Revoke instantly?        yes — delete the session record       no — valid until expiry no matter what;
+                                                                needs a blocklist or short expiry + refresh token
+Theft surface           can be `httpOnly` — invisible to       usually stored/read by JS (e.g. `localStorage`)
+(if stolen via XSS)     an XSS-injected script                 to attach to headers — directly readable by it
+```
+"Stateful vs. stateless" is correct as a label, but the two properties that actually drive the choice in practice are **revocability** (can you kill it server-side right now, e.g. for "log out everywhere" or a compromised account?) and **theft-resistance** (where does the token sit, and can injected JS read it?). Neither scheme is inherently "better" — a backend can run both at once (session for the first-party web app, JWT for mobile/other services) via separate auth filters; that's routine, not a conflict.
 
 **Also worth reviewing:** never trust client-side-only validation (hiding a button isn't security — always re-validate server-side).
 
