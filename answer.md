@@ -1,8 +1,12 @@
-no it not doing the same thing
+i think first they use different JOIN
 
-the first is stateful and the second is stateless 
+they should use the LEFT JOIN so this can get the customer who don't have any order yet and we can count it in this 
 
-so when we use two way to handle the login it will conflict
+and the second one is apply the discount_code so the target they want to check all the order that include either discount or not so we need to remove it 
 
-because the JWT will attach to header and session id is also but when the request go to my app i need to handle both of them , validate the session_id and jwt so it will make the app more complex and hard
-in my opinion i will pick JWT for both because the jwt is stateless it don't save any info about the user like using session in statefull, it just need validate the JWT using the secret so when valid it just pass through ortherwise the statefull will make our memory in server is higher
+so the good query is like that
+
+SELECT c.name, COUNT(o.id) AS order_count
+FROM customers c
+LEFT OUTER JOIN orders o ON c.id = o.customer_id
+GROUP BY c.name;

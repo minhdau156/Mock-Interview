@@ -283,6 +283,24 @@ SELECT * FROM orders WHERE status = 'PENDING';
 ```
 A composite index is a single B-tree sorted by the **first** column, then the second *within* each value of the first, then the third *within* that. A query must filter on a left-to-right prefix — `(a)`, `(a, b)`, or `(a, b, c)` — never `(b)` alone. If a later predicate is wrapped in a function (defeating index usage for that column specifically), the engine can still use the index for the leading column(s) — the scan narrows to that subset, then evaluates the remaining predicate row by row on just that subset, not the entire table. Trade-off: every index speeds up matching reads but adds overhead to every `INSERT`/`UPDATE`/`DELETE` on that table.
 
+**JOIN type determines whether unmatched rows survive — and `= NULL` is never true.**
+```sql
+-- INNER JOIN: customers with zero orders vanish from the result entirely
+SELECT c.name, COUNT(o.id) AS order_count
+FROM customers c
+JOIN orders o ON c.id = o.customer_id
+GROUP BY c.name;
+
+-- LEFT [OUTER] JOIN: every customer survives; o.* is NULL where there's no match
+SELECT c.name, COUNT(o.id) AS order_count
+FROM customers c
+LEFT JOIN orders o ON c.id = o.customer_id
+GROUP BY c.name;
+```
+`INNER JOIN` only keeps rows that match on both sides — a customer with no orders has no row to match, so it silently disappears from the report. `LEFT JOIN` keeps every row from the left table regardless, filling unmatched right-side columns with `NULL`. `COUNT(o.id)` still works correctly here because `COUNT` on a specific column skips `NULL`s, landing on `0` for those customers rather than `1`.
+
+Separately, a related NULL trap: `WHERE o.discount_code = NULL` **never matches any row — including rows where `discount_code` genuinely is `NULL`.** SQL's `NULL` represents "unknown," so `x = NULL` always evaluates to `UNKNOWN`, and a `WHERE` clause treats `UNKNOWN` the same as `false`. The only correct tools for a null check are `IS NULL` / `IS NOT NULL`, which test for the absence of a value directly rather than comparing against it.
+
 **Foreign keys, referential integrity, and cascading deletes.**
 ```sql
 CREATE TABLE customers (id BIGINT PRIMARY KEY, email VARCHAR(255) UNIQUE, ...);
@@ -405,6 +423,20 @@ public class Customer {
 }
 ```
 A transient `Customer` (`id == null`) placed in a `HashSet`/used as a `HashMap` key before being persisted will have its hashCode change the instant Hibernate assigns a real `id` on save — the same mutable-hashCode-key problem as any other mutable map key, now on an entity's transient→persistent transition. Fix: avoid blanket `@Data` on `@Entity`; use `@Getter`/`@Setter` plus `@EqualsAndHashCode(of = "id")` (or hand-written equals/hashCode on `id` with a null-safe check). Secondary risk: an all-fields `toString()`/`equals()` can cause infinite recursion if a bidirectional relationship exists. Separately, JPA requires a no-args constructor on `@Entity` classes for reflection-based instantiation — note that Lombok's `@Data` already includes an implicit `@RequiredArgsConstructor`, which is a no-args constructor *as long as there are no `final`/`@NonNull` fields*; it only becomes a real gap once such a field is added.
+
+**Entity gotcha — missing `equals`/`hashCode` entirely, and why `id` isn't a safe substitute before persist.**
+```java
+@Entity
+public class Product {              // no equals()/hashCode() overridden at all
+    @Id @GeneratedValue private Long id;
+    private String sku;
+    private String name;
+}
+
+List<Product> products = csvParser.parseAll(file);          // two rows, same SKU, none persisted yet
+Set<Product> uniqueProducts = new HashSet<>(products);      // both still end up in the set — dedup fails
+```
+With no override, `equals()`/`hashCode()` fall back to `Object`'s identity-based defaults — two separate `Product` instances are never "equal" no matter what data they hold, so a `HashSet` can't dedupe them by SKU. The tempting fix — override on `id` — doesn't work here either: every object in this list is **transient** (`id == null`), so all of them would hash identically and compare equal to each other via `null == null`, silently collapsing genuinely different products into one instead of just deduping the true duplicates. The correct fix is a stable **business key** that's actually populated pre-persist (here, `sku`) — the same underlying principle as the mutable-hashCode-key entity gotcha above, just hit from the opposite direction: that one was a key that *changes* after persist, this one is a key that *doesn't exist yet* before persist.
 
 **`LazyInitializationException`.**
 ```java
@@ -608,6 +640,20 @@ SELECT * FROM seats WHERE id = ? FOR UPDATE;   -- row-level lock; other transact
 COMMIT;                                          -- lock released
 ```
 Fits short, high-conflict operations (e.g. last-seat booking) where losing the conflict is expensive — trades throughput for safety, can cause timeouts under heavy load, and introduces deadlock risk if two transactions lock multiple rows in different orders. Keep the transaction short.
+
+**Optimistic vs. pessimistic under extreme contention — the wasted-work argument.**
+```
+Single unit left, 500 concurrent buy attempts:
+
+Optimistic: all 500 read the row, race to UPDATE ... WHERE version = ?,
+            1 wins, 499 lose -> each loser retries the WHOLE read-modify-write
+            cycle, discovers the item is STILL gone, retries again... wasted DB round trips.
+
+Pessimistic: all 500 queue on SELECT ... FOR UPDATE for that ONE row,
+             each runs in turn, checks stock, decrements or reports "sold out" -
+             no retry loop, just a wait.
+```
+The "short, high-conflict → pessimistic" rule above is really an argument about *wasted work*: under heavy contention over one scarce resource, most optimistic-locking retries are doomed before they even run, so paying for a queue upfront beats paying for repeated failed attempts. Also worth being precise about scope when explaining this: `SELECT ... FOR UPDATE` locks the **row**, not the table or the database — describing it as "locking the DB" is a common but meaningfully wrong simplification.
 
 **Deadlock via lock-order inversion.**
 ```java
