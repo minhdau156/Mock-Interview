@@ -1,12 +1,10 @@
-i think first they use different JOIN
+i think i will make the relation between 2 table become n - n so when we add the field category_id_2 it will make our db more bigger
 
-they should use the LEFT JOIN so this can get the customer who don't have any order yet and we can count it in this 
+so we need to create the table that it will have 2 primary key of product and category 
 
-and the second one is apply the discount_code so the target they want to check all the order that include either discount or not so we need to remove it 
+it like this
 
-so the good query is like that
+product_id reference products(id)
+category_id reference categories(id);
 
-SELECT c.name, COUNT(o.id) AS order_count
-FROM customers c
-LEFT OUTER JOIN orders o ON c.id = o.customer_id
-GROUP BY c.name;
+so it can make our table clean
