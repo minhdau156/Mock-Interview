@@ -1,4 +1,4 @@
-# Backend Interview Knowledge Reference — Sessions 2026-08-12, 2026-08-17, 2026-08-19 & 2026-08-20
+# Backend Interview Knowledge Reference — Sessions 2026-08-12, 2026-08-17, 2026-08-19, 2026-08-20 & 2026-08-21
 
 A pure study reference distilled from these mock interview sessions — concepts only, organized by topic, with code examples where they clarify the mechanism.
 
@@ -254,6 +254,32 @@ public void handlePaymentWebhook(PaymentEvent event) {
 ```
 The webhook payload carries a unique event ID exactly so a handler can atomically check-and-record "have I seen this before?" A `UNIQUE`/primary-key constraint on `event_id` makes that check atomic at the database level, regardless of how many requests hit it or how far apart in time they arrive — no `synchronized`, no distributed lock, no extra infrastructure required. Reflex: separate "two requests at the *same instant*" (a concurrency problem, needs a lock) from "the *same* request arriving again later" (an identity/idempotency problem, needs a uniqueness guarantee) — they look similar but call for different tools.
 
+**A single-JVM lock (`synchronized`) doesn't coordinate across instances — cross-instance mutual exclusion needs an external, atomic check-and-set.**
+```java
+// Looks like it should prevent triple-execution — doesn't, once there's more than one instance
+@Scheduled(cron = "0 0 2 * * *")
+public synchronized void sendAbandonedCartReminders() {
+    cartService.emailAbandonedCarts();
+}
+```
+Scaling from one instance to three doesn't multiply threads inside one JVM — it creates three separate JVMs, each with its own thread pool and its own independent `synchronized` lock. All three fire their own 2 AM cron trigger, and each JVM's lock only ever blocks *other threads in that same JVM* — there's nothing in `synchronized` that knows the other two instances exist, so the job still runs three times.
+
+```java
+// Redis SET ... NX PX: one atomic command, only one instance can win it
+Boolean acquired = redisTemplate.opsForValue()
+    .setIfAbsent("lock:abandoned-cart-job", instanceId, Duration.ofMinutes(10));
+
+if (Boolean.TRUE.equals(acquired)) {
+    try {
+        cartService.emailAbandonedCarts();
+    } finally {
+        redisTemplate.delete("lock:abandoned-cart-job");
+    }
+}
+// other two instances: setIfAbsent returns false, they skip the job entirely
+```
+`SET key value NX PX <ttl>` succeeds only if the key doesn't already exist, and that check-and-set happens as a single atomic operation — no window where two instances could both pass a "does it exist?" check before either writes. The `PX <ttl>` expiry is not an optional extra: without it, an instance that acquires the lock and then crashes mid-job leaves the key set forever, and the job never runs again on any instance. With a TTL, the lock auto-expires even if the holder never releases it explicitly, so the next scheduled run can acquire it fresh. Reflex: whenever `synchronized` is proposed as the fix for "duplicate work across multiple instances/services," the immediate question is "which JVM does this lock live in?" — a lock scoped to one process can never coordinate processes it doesn't share memory with.
+
 ---
 
 ## 7. Testing & Debugging
@@ -279,6 +305,26 @@ if (email != null) {
 }
 ```
 This prevents the exception, but the real question is *why* `getCustomerEmail(Order)` returned null in production — a guest checkout with no email on file, a migration that left old rows without one, a bug upstream in how the order was built? A guard at the call site is a reasonable safety net, but stopping there without asking that second question leaves the same root cause free to resurface anywhere else that touches a null email. In production specifically — unlike local dev — also tie the trace back to the actual order/request that triggered it (via logs or the order ID), since it usually can't just be re-run to reproduce.
+
+**Narrowing down which step failed in a multi-call chain: reach for what's already captured, or a trace, before scattering new print statements.**
+```java
+// checkout chains five calls; a generic catch-all hides which one actually failed
+try {
+    validateCart(cart);
+    applyPricing(cart);
+    reserveInventory(cart);
+    chargePayment(cart);
+    sendConfirmation(cart);
+} catch (Exception e) {
+    log.error("Checkout failed", e);           // logs *something*, but the client only sees:
+    return ResponseEntity.status(500).body("Checkout failed, please try again");
+}
+```
+"Add a `System.out.println` after every line across all five methods and redeploy" turns every guess into a full redeploy cycle, and still only tells you about the *next* failure, not this one. Two better moves, in order:
+1. **Check what's already captured first.** The generic `catch (Exception e)` above still logs the real, specific exception (`log.error("Checkout failed", e)`) even though the client only sees a generic message — the answer is very likely already sitting in the logs, searchable by request ID, without deploying anything new.
+2. **For a live, hard-to-reproduce-locally failure, reach for tracing over prints.** A distributed tracing tool (e.g. Tempo, viewed through Grafana, correlated with logs in Loki) records a span for each of the five calls in the chain, with timing and status — so instead of guessing which of five methods to instrument, you look at the trace and see directly which span failed or where the chain stopped.
+
+The underlying principle either technique leans on is **binary-search debugging**: narrow the search space by checking a midpoint ("did `reserveInventory` complete? yes → the bug is in the last two steps") rather than instrumenting the whole chain at once and hoping the output makes it obvious. Reflex: before adding any new logging/print statements to hunt a bug, ask "is this already being captured somewhere I haven't looked (existing logs, an existing trace), before I add anything new?"
 
 ---
 
@@ -309,6 +355,29 @@ const OPTIONS = { include: 'address' };
 function ProfilePage({ userId }) { ... }
 ```
 `useState` also happens to "work" here, since the initial value is only constructed once and the reference stays stable unless `setOptions` is explicitly called — but it's not the idiomatic tool, because `useState` signals a value that changes over time, which this isn't. Reflex: whenever an object/array/function literal is defined inside the component body and placed in a dependency array, ask "same reference every render, or a new one?"
+
+**Conditionally rendering a UI element is UX, not authorization — the server has to re-check every time, because the client can always be bypassed.**
+```jsx
+// Hides the button from a non-admin user in the UI — and only that
+{user.role === 'admin' && (
+  <button onClick={applyEmployeeDiscount}>Apply Employee Discount</button>
+)}
+```
+```
+# Bypasses the button, the component, and the role check entirely:
+curl -X POST https://api.example.com/discounts/employee -H "Authorization: Bearer <any-valid-token>"
+```
+`{user.role === 'admin' && ...}` only decides whether *this* button renders in *this* browser tab — it has zero effect on whether the backend endpoint it calls will accept a request. Nothing about React, the component tree, or `user.role` runs on the server; a non-admin user (or anyone holding a valid token, admin or not) can call the same endpoint directly with curl, Postman, or the browser's Network-tab replay, and the server will process it exactly as if the button had been clicked — because as far as the server is concerned, no button was ever involved.
+```java
+// The check has to be re-asserted here, independent of anything the client sent or hid
+@PreAuthorize("hasRole('ADMIN')")
+@PostMapping("/discounts/employee")
+public ResponseEntity<Void> applyEmployeeDiscount(@AuthenticationPrincipal UserDetails user) {
+    discountService.applyEmployeeDiscount(user);
+    return ResponseEntity.ok().build();
+}
+```
+`@PreAuthorize` checks the role carried in the authenticated principal — derived from a signature-verified JWT claim or a server-side session — which the client cannot forge, unlike a plain `user.role` value living in browser-side JS state. The frontend check is worth keeping (no reason to show a button an employee can't use), but it is UX polish layered *on top of* server-side authorization, never a substitute for it. Reflex: for any sensitive action wired to a UI element, ask "what stops someone from hitting this endpoint directly, skipping the UI entirely?" — if the answer is "nothing," the button hasn't secured anything.
 
 ---
 
