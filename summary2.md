@@ -1,4 +1,4 @@
-# Backend Interview Knowledge Reference — Sessions 2026-08-12, 2026-08-17, 2026-08-19, 2026-08-20 & 2026-08-21
+# Backend Interview Knowledge Reference — Sessions 2026-08-12, 2026-08-17, 2026-08-19, 2026-08-20, 2026-08-21 & 2026-08-25
 
 A pure study reference distilled from these mock interview sessions — concepts only, organized by topic, with code examples where they clarify the mechanism.
 
@@ -112,6 +112,31 @@ class EmailSender {
 ```
 The signal to watch for isn't a class count — it's whether a **second real, active implementation** exists or is committed, scheduled work, not "we might want this later." Introduce the `Strategy`/`Factory` split when that second implementation actually needs to ship. Separately, a branch like `SmsNotificationStrategy` that nothing ever calls is dead code and worth flagging for removal regardless of the abstraction question.
 
+**A mutable instance field on a singleton `@Service` is shared state across every concurrent request — and locking it fixes the wrong problem.** (08-25, Q3, scored 4/10)
+```java
+@Service
+public class ReportGenerator {
+    private int rowCount;   // one field, shared by every concurrent caller
+
+    public Report generate(List<Row> rows) {
+        rowCount = rows.size();
+        Report report = new Report();
+        // ... processing that reads rowCount a few lines later ...
+        report.setSummary("Processed " + rowCount + " rows");
+        return report;
+    }
+}
+```
+`@Service` beans are singletons — one instance serves every request. `rowCount` isn't a value that needs to be safely *combined* across threads (like a running total); it's per-request data that never should have lived on a shared object. The instinctive fix — `synchronized`, `AtomicInteger`, locking the field — targets the wrong shape of bug: even with perfect synchronization, Thread A can set `rowCount = 5`, then before A reads it back, Thread B (after A releases any lock) sets `rowCount = 3` — A now reads `3`. Locking makes each individual read/write atomic; it does nothing to stop *interleaving* between one request's write and its own later read, because both requests are racing over the same variable to hold two logically separate values.
+```java
+// Fix: no field at all — a local variable lives on each thread's own stack frame
+public Report generate(List<Row> rows) {
+    int rowCount = rows.size();
+    ...
+}
+```
+General principle: a singleton `@Service`/`@Component` should be **stateless** — anything that varies per call belongs in parameters, locals, or the return value, never an instance field. Worth naming explicitly: prototype scope is *not* a reliable fix here either, since Spring typically resolves a bean's dependencies once, at the time the *injecting* bean (often itself a singleton) is constructed — a prototype-scoped `ReportGenerator` injected into a singleton controller still ends up reused as the same instance in practice, without a scoped proxy or `ObjectProvider` to request a fresh one per call.
+
 ---
 
 ## 3. Databases: SQL, Indexing & Data Modeling
@@ -140,6 +165,31 @@ CREATE TABLE product_categories (
 ```
 The two FK columns together form a **composite primary key**, which does double duty: it's the row identifier, and it's a free guarantee that the same product can't be tagged into the same category twice (inserting the same pair again violates the PK). Querying "all products in category X" also gets simpler — one join against `product_categories`, instead of an `OR` across a growing list of columns.
 
+**A delimited list in one column is a First Normal Form violation — the fix is a child table, and the "extra" foreign key rows aren't duplication.** (08-25, Q2, scored 4/10 — needed two hints, one lingering misconception)
+```sql
+-- Original: two phone numbers crammed into one column
+CREATE TABLE customers (
+    id BIGINT PRIMARY KEY,
+    name VARCHAR(255),
+    phone_numbers VARCHAR(255)  -- "555-1234,555-5678"
+);
+
+SELECT * FROM customers WHERE phone_numbers LIKE '%555-1234%';  -- "works," but can't use an index
+```
+1NF requires a column's value to be **atomic** — one value, not a delimited list. Storing two numbers in one cell forces every search into a wildcard scan, and `LIKE '%555-1234%'` (leading `%`) can never use a B-tree index regardless of column shape, since the index can't binary-search for a value that might start anywhere in the string.
+```sql
+-- Fixed: one phone number per row
+CREATE TABLE customer_phone_numbers (
+    id BIGINT PRIMARY KEY,
+    customer_id BIGINT REFERENCES customers(id),
+    phone_number VARCHAR(20)
+);
+CREATE INDEX idx_phone_number ON customer_phone_numbers (phone_number);
+
+SELECT * FROM customer_phone_numbers WHERE phone_number = '555-1234';  -- plain equality, uses the index
+```
+Misconception worth correcting explicitly: repeating `customer_id` as a foreign key across several phone rows is **not** harmful duplication — it's exactly what a one-to-many relationship is supposed to look like. The actual trade-off accepted here is needing a `JOIN` whenever a customer's name and phone numbers are needed together, in exchange for correct indexing, unbounded phone counts, and no wildcard scans. Reflex: any time a column would need to hold "a comma-separated list of X," that's the signal for a child table with one X per row, not a wider `VARCHAR`.
+
 ---
 
 ## 4. Spring Boot & JPA/Hibernate
@@ -167,6 +217,18 @@ private List<OrderItem> items = new ArrayList<>();
 This initializer only ever runs when constructing a brand-new, transient instance via `new Order()`. When Hibernate loads an *existing* row, it replaces the field with its own managed collection wrapper (a `PersistentBag`) during hydration — the initializer's value is simply discarded at that point, not merged with or protecting the real data.
 
 Fix: never call mutating collection methods (`remove`/`add`/`clear`) on a live, managed entity collection from read-only or reporting code — copy it first (`order.getItems().stream().filter(...).toList()`). Reserve `orphanRemoval = true` for cases where "removed from the parent's collection" and "should be deleted" are genuinely the same business rule — not as a default that comes bundled with `cascade = ALL`.
+
+**`LazyInitializationException` — the session/transaction closes the instant the repository call returns, not when the entity is later used.** (08-25, Q1, scored 4/10 — flagged as an unintentional repeat of 08-05's Q1; see `KNOWLEDGE_SUMMARY.md` for the fuller writeup and the two standard fixes)
+```java
+@GetMapping("/customers/{id}")
+public Customer getCustomer(@PathVariable Long id) {
+    return customerRepository.findById(id).orElseThrow();   // no @Transactional anywhere
+}
+// Customer.orders is @OneToMany(fetch = FetchType.LAZY)
+
+log.info("orders count: {}", customer.getOrders().size());   // throws: no Session
+```
+No `@Transactional` is declared on this method. A Spring Data repository method like `findById` is transactional only for the duration of its own call — the instant it returns, that transaction commits and the session closes, leaving `customer` **detached**. The log line isn't the cause; it's just the first place anything touches the lazy `orders` collection. Correct fixes: wrap the real logic in a `@Transactional` service method that returns a DTO (not the entity) to the controller, or use a repository query with `JOIN FETCH` to load the association in the same query, or project straight to a DTO in the repository layer. Blanket eager fetching is not the fix — it loads the association on every fetch everywhere, including call sites that never need it.
 
 ---
 
