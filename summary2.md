@@ -1,4 +1,4 @@
-# Backend Interview Knowledge Reference — Sessions 2026-08-12, 2026-08-17, 2026-08-19, 2026-08-20, 2026-08-21 & 2026-08-25
+# Backend Interview Knowledge Reference — Sessions 2026-08-12, 2026-08-17, 2026-08-19, 2026-08-20, 2026-08-21, 2026-08-25 & 2026-09-01
 
 A pure study reference distilled from these mock interview sessions — concepts only, organized by topic, with code examples where they clarify the mechanism.
 
@@ -189,6 +189,33 @@ CREATE INDEX idx_phone_number ON customer_phone_numbers (phone_number);
 SELECT * FROM customer_phone_numbers WHERE phone_number = '555-1234';  -- plain equality, uses the index
 ```
 Misconception worth correcting explicitly: repeating `customer_id` as a foreign key across several phone rows is **not** harmful duplication — it's exactly what a one-to-many relationship is supposed to look like. The actual trade-off accepted here is needing a `JOIN` whenever a customer's name and phone numbers are needed together, in exchange for correct indexing, unbounded phone counts, and no wildcard scans. Reflex: any time a column would need to hold "a comma-separated list of X," that's the signal for a child table with one X per row, not a wider `VARCHAR`.
+
+**Sequential IDs are guessable; the fix (UUID) has real index/insert costs, and a middle ground usually exists.** (2026-09-01, Q3, scored 3/10 — heavy hinting, asked for the answer outright twice)
+```
+GET /orders/1042   -- watching this endpoint over time reveals order volume/growth rate to anyone
+```
+An auto-increment primary key exposed directly in a URL leaks more than just an ID — the sequence is enumerable (walk `/orders/1`, `/orders/2`, ...) and reveals a business metric (how fast orders are being created) just from watching the numbers climb. A UUID (especially random v4) fixes exactly that property: there's no way to guess a real order's ID from a known one.
+```sql
+-- BIGINT: 8 bytes, and every new value is greater than the last —
+-- inserts always land at the rightmost edge of the B-tree (cheap, no reshuffling)
+id BIGINT AUTO_INCREMENT PRIMARY KEY
+
+-- UUID: 16 bytes, and (for v4) uniformly random —
+-- inserts land at unpredictable points throughout the tree
+id UUID PRIMARY KEY DEFAULT gen_random_uuid()
+```
+Switching the primary key itself to UUID isn't free: it doubles the storage of the key (and every foreign key/index referencing it), and a random UUID's insert pattern causes B-tree page splits and index fragmentation, since new rows no longer append neatly at the end the way sequential integers do — that's the real mechanism, more precise than "lookups get slower." (Time-ordered variants like UUIDv7/ULID exist specifically to keep unguessability while preserving enough ordering to avoid this fragmentation.) Looking up a row by an already-known ID is still roughly `O(log n)` either way — the cost is concentrated in writes and index size, not reads.
+
+```sql
+-- Middle ground: the internal primary key and the publicly exposed identifier don't have to be the same column
+CREATE TABLE orders (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,                        -- internal: fast joins, compact indexes, never exposed
+  public_id UUID UNIQUE NOT NULL DEFAULT gen_random_uuid(),     -- external: what the API/URLs actually use
+  ...
+);
+-- GET /orders/{public_id} -- e.g. /orders/3f29b1e0-...  -- nothing sequential is ever exposed
+```
+Internally, every join/foreign key still uses the cheap, compact `BIGINT`; externally, the API only ever hands out the opaque `public_id`, so nothing guessable ever leaves the system. This is the same pattern Stripe uses — public-facing IDs like `ch_1a2b3c...` aren't the internal database primary keys. Reflex: when a requirement is "don't let this ID be guessable," check whether it's actually the *primary key* that needs to change, or just what gets exposed at the API boundary — the two are separable.
 
 ---
 
@@ -388,6 +415,22 @@ try {
 
 The underlying principle either technique leans on is **binary-search debugging**: narrow the search space by checking a midpoint ("did `reserveInventory` complete? yes → the bug is in the last two steps") rather than instrumenting the whole chain at once and hoping the output makes it obvious. Reflex: before adding any new logging/print statements to hunt a bug, ask "is this already being captured somewhere I haven't looked (existing logs, an existing trace), before I add anything new?"
 
+**Log levels form a threshold hierarchy — enabling `DEBUG` doesn't replace `INFO`/`WARN`/`ERROR`, it captures all of them plus everything below.** (2026-09-01, Q1, scored 4/10 — needed the level definitions handed over before attempting the scenario)
+```
+ERROR  -- something failed and needs attention (payment call failed after retries, DB save failed)
+WARN   -- recovered from something unexpected (cache miss fell back to DB, deprecated API called)
+INFO   -- small number of meaningful lifecycle/business events (order placed, app started)
+DEBUG  -- fine-grained internals (computed discount = 0.1 for customer 42, entering method X)
+```
+Setting the root logger to `DEBUG` doesn't swap out the other levels — it lowers the threshold, so every `DEBUG` line *and* every `INFO`/`WARN`/`ERROR` line above it gets emitted. That's exactly why flipping a service to `DEBUG` during an incident and forgetting to revert it causes volume to balloon — normal traffic that used to produce a handful of `INFO` lines per request now also emits every fine-grained internal step, for every request, indefinitely.
+
+**Fixing the level alone doesn't fix the process failure that let it linger, or the actual "can't find the right lines" complaint.** Three genuinely separate problems tend to arrive bundled in a scenario like this — reverting the level is only the first:
+1. **The level itself** — revert to `INFO` (or whatever the service's steady-state level should be) once the investigation that justified `DEBUG` is over.
+2. **The process gap that let it linger for weeks** — the real root cause isn't "the level was wrong," it's that a *temporary* diagnostic change had no mechanism forcing it back. A follow-up reminder/ticket tied to any manual level change, or an auto-expiring override, is what stops "someone forgot" from silently persisting.
+3. **Findability** — lower volume helps, but the actual fix for "took 40 minutes to find the relevant lines" is structured logging with a searchable correlation/request ID on every line, so one request's lines can be filtered out instantly regardless of how noisy the overall stream is.
+
+Also worth naming: a disk-usage alert firing from log volume is a **retention/rotation** gap as much as a level gap — even a correctly-leveled service needs old logs to expire/rotate, so a future legitimate volume spike (a traffic surge, a new feature) can't fill the disk again. `DEBUG` is generally safer scoped narrowly (one package/logger, or one request) rather than flipped at the root logger for the whole service — that containment is what makes "forgot to revert" cost much less the next time it happens.
+
 ---
 
 ## 8. Web Security & Frontend Basics
@@ -511,4 +554,26 @@ public class OrderService {
         return orderRepository.save(order);
     }
 }
+```
+
+---
+
+## 10. Tooling: Git, Build & Environment
+
+**Green CI proves the code satisfies the tests that already exist — it says nothing about whether those are the right tests, or whether the code is reviewable for reasons that have nothing to do with passing.** (2026-09-01, Q2, scored 4/10 — correct core instinct, but no concrete example given despite being asked for one)
+```
+CI checks:             Does it compile? Do existing tests pass?
+Still open questions:  Do the tests cover the cases that actually matter (edge cases, error paths)?
+                        Is the code itself something a teammate could read/extend later?
+                        Does it solve the problem that was actually asked for?
+                        Does anything here need a check that no test was ever written to catch?
+```
+A PR can be fully green and still be worth pushing back on. Concrete examples of things CI structurally cannot catch:
+- **Untested edge cases/error paths** — the happy path is covered, but a null input, an empty list, or a downstream failure isn't exercised by any test, so a real bug there would currently ship silently.
+- **Requirement mismatch** — the code is clean and fully tested, but doesn't actually implement what the ticket asked for; CI only knows what the tests assert happened, not what was supposed to happen.
+- **Security gaps no test was written for** — a new endpoint missing an authorization check, a secret hardcoded instead of injected from config, unvalidated input — these pass every existing test by default, precisely because nothing was written to catch them.
+- **Architectural fit** — business logic sitting in a controller when the codebase's convention is a service layer, or new logic duplicating a utility that already exists elsewhere — both compile and pass tests just fine.
+- **Readability/maintainability** — code that works but is hard to follow six months later, with no test that could ever flag "this was confusing," is still a legitimate reason to request changes.
+
+Reflex: CI answers "does this work, according to the tests we already wrote" — reviewing is everything CI structurally can't check, starting with "were these the right tests" and "is this actually what was asked for."
 ```
