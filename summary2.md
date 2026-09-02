@@ -1,4 +1,4 @@
-# Backend Interview Knowledge Reference — Sessions 2026-08-12, 2026-08-17, 2026-08-19, 2026-08-20, 2026-08-21, 2026-08-25 & 2026-09-01
+# Backend Interview Knowledge Reference — Sessions 2026-08-12, 2026-08-17, 2026-08-19, 2026-08-20, 2026-08-21, 2026-08-25, 2026-08-30, 2026-09-01 & 2026-09-02
 
 A pure study reference distilled from these mock interview sessions — concepts only, organized by topic, with code examples where they clarify the mechanism.
 
@@ -137,6 +137,31 @@ public Report generate(List<Row> rows) {
 ```
 General principle: a singleton `@Service`/`@Component` should be **stateless** — anything that varies per call belongs in parameters, locals, or the return value, never an instance field. Worth naming explicitly: prototype scope is *not* a reliable fix here either, since Spring typically resolves a bean's dependencies once, at the time the *injecting* bean (often itself a singleton) is constructed — a prototype-scoped `ReportGenerator` injected into a singleton controller still ends up reused as the same instance in practice, without a scoped proxy or `ObjectProvider` to request a fresh one per call.
 
+**LLD exercise (vending machine) — inheritance for data variation is the same over-engineering trap as an unnecessary interface, and "inject" is not the same mechanism as "look up by string."** (2026-09-02, Q3, scored 6/10 — fully self-directed, no hints needed)
+```java
+// Over-engineered: Pepsi/Coca/Tea don't BEHAVE differently, they just hold different DATA
+class Drink { Long id; String type; int quantity; BigDecimal price; String code; }
+class Pepsi extends Drink { ... }
+class Coca extends Drink { ... }
+class Tea extends Drink { ... }
+```
+The candidate correctly reached for an interface where behavior genuinely varies (`PaymentStrategy` with `CashPayment`/`CardPayment` — validating and collecting money really differs by method) but then built a class hierarchy for `Drink` flavors that differ only in name/price/code — no behavioral difference at all. Same principle as the Strategy/Factory premature-abstraction case above, from the opposite direction: there it was an interface built for a variation that didn't exist yet; here it's a *class hierarchy* built for a variation that was never behavioral to begin with. Correct model: one concrete `Drink` class, multiple instances holding different data.
+```java
+// What was described as "inject the PaymentStrategy" was actually two different mechanisms conflated:
+public PaymentStrategy getDrink(String code, String paymentMethod) {
+    PaymentStrategy strategy = createStrategy(paymentMethod);   // <- this is a FACTORY: string -> instance
+    ...
+}
+// True injection: the caller already hands over a built instance, no branching on a string at all
+public class DrinkHandler {
+    private final PaymentStrategy strategy;   // <- THIS is injection
+    public DrinkHandler(PaymentStrategy strategy) { this.strategy = strategy; }
+}
+```
+Mapping a runtime string (`"CARD"`) to the right `PaymentStrategy` implementation is a **Factory**'s job, not "injection" — injection means the dependency arrives already-built from the caller (e.g. Spring wiring a bean), with no string-based lookup involved. A design can legitimately use both together (Strategy interface + a Factory that resolves which implementation to use), but they're answering different questions and shouldn't be described interchangeably.
+
+Also worth naming: money/change state ("the variable that get the money and the variable hold the money") and stock decrement/out-of-stock detection were both explicitly asked for in the prompt and never addressed — a reminder that a design answer should be checked against every stated requirement before it's considered complete, not just the parts that were top of mind.
+
 ---
 
 ## 3. Databases: SQL, Indexing & Data Modeling
@@ -217,6 +242,32 @@ CREATE TABLE orders (
 ```
 Internally, every join/foreign key still uses the cheap, compact `BIGINT`; externally, the API only ever hands out the opaque `public_id`, so nothing guessable ever leaves the system. This is the same pattern Stripe uses — public-facing IDs like `ch_1a2b3c...` aren't the internal database primary keys. Reflex: when a requirement is "don't let this ID be guessable," check whether it's actually the *primary key* that needs to change, or just what gets exposed at the API boundary — the two are separable.
 
+**A single `status` column can only ever hold the current value — `UPDATE` destroys the transition history, not just "loses some detail."** (2026-09-02, Q2, scored 4/10 — needed the question broken into parts and three hints to reach the root cause)
+```sql
+CREATE TABLE orders (
+    id BIGINT PRIMARY KEY,
+    status VARCHAR(20),      -- 'PENDING', 'PAID', 'SHIPPED', 'DELIVERED', 'CANCELLED'
+    updated_at TIMESTAMP
+);
+
+UPDATE orders SET status = 'PAID', updated_at = '2026-08-30 10:00' WHERE id = 42;
+-- three days later:
+UPDATE orders SET status = 'SHIPPED', updated_at = '2026-09-02 09:00' WHERE id = 42;
+-- the row now has no trace that it was ever 'PAID', or when — that value was OVERWRITTEN, not archived
+```
+"When did it move to PAID, and how long did it sit there before shipping" is unanswerable here for a structural reason, not a query-writing one: a row has exactly one `status` slot and one `updated_at` slot, and every `UPDATE` overwrites whatever was in them — there's nowhere for the previous value to persist. Worth naming explicitly: switching the column from `VARCHAR` to an `ENUM` type changes nothing about this — an `ENUM` column gets overwritten by `UPDATE` exactly the same way; that distinction is about which strings are *valid*, not about whether old values survive.
+```sql
+-- Fix: an insert-only history table — a transition becomes a new row, not an overwrite
+CREATE TABLE order_status_history (
+    id BIGINT PRIMARY KEY,
+    order_id BIGINT REFERENCES orders(id),
+    status VARCHAR(20),
+    changed_at TIMESTAMP
+);
+-- "how long did it sit in PAID" is now just: the next row's changed_at minus this row's changed_at
+```
+The real cost of this fix isn't storage/indexing (a bigger table with an index on `order_id` is cheap and unremarkable) — it's **write amplification and read complexity**. Most real designs keep `orders.status` around too, as a denormalized column for fast current-state reads, which means every transition now needs *two* writes kept in sync (update `orders.status` **and** insert a history row — typically from one service method, or a DB trigger) instead of one. Drop the denormalized column entirely and reads get more expensive instead: finding the current status means `SELECT status FROM order_status_history WHERE order_id = ? ORDER BY changed_at DESC LIMIT 1` rather than a single-column read. Reflex: whenever a requirement is "show me every past value/timestamp of X," check whether X is currently modeled as a column that gets `UPDATE`d in place — if so, the fix is almost always an insert-only child table, not a wider column or more metadata crammed into the existing one.
+
 ---
 
 ## 4. Spring Boot & JPA/Hibernate
@@ -256,6 +307,33 @@ public Customer getCustomer(@PathVariable Long id) {
 log.info("orders count: {}", customer.getOrders().size());   // throws: no Session
 ```
 No `@Transactional` is declared on this method. A Spring Data repository method like `findById` is transactional only for the duration of its own call — the instant it returns, that transaction commits and the session closes, leaving `customer` **detached**. The log line isn't the cause; it's just the first place anything touches the lazy `orders` collection. Correct fixes: wrap the real logic in a `@Transactional` service method that returns a DTO (not the entity) to the controller, or use a repository query with `JOIN FETCH` to load the association in the same query, or project straight to a DTO in the repository layer. Blanket eager fetching is not the fix — it loads the association on every fetch everywhere, including call sites that never need it.
+
+**`@Value` vs. `@ConfigurationProperties` — fail-fast vs. silent lenient binding on a missing key.** (2026-09-02, Q1, scored 5/10 — needed two hints)
+```java
+@Component
+public class PaymentGatewayClient {
+    @Value("${payment.stripe.api-key}")
+    private String apiKey;
+    @Value("${payment.stripe.timeout-ms}")
+    private int timeoutMs;
+    // ... 6 more @Value fields for related Stripe settings
+}
+```
+Eight separate `@Value` fields scattered across one class is a code-review smell on its own — grouping related settings into one `@ConfigurationProperties` class is more type-safe, unit-testable without a Spring context, and supports nested/complex types `@Value` can't bind directly. But the sharper, more surprising difference is what happens when `payment.stripe.timeout-ms` is **missing** from `application.yml` entirely:
+```java
+// @Value: fails LOUDLY at startup — Spring can't resolve the placeholder text itself
+// throws: IllegalArgumentException: Could not resolve placeholder 'payment.stripe.timeout-ms'
+@Value("${payment.stripe.timeout-ms}")           private int timeoutMs;
+@Value("${payment.stripe.timeout-ms:5000}")      private int timeoutMs; // fallback avoids the throw
+
+// @ConfigurationProperties: fails SILENTLY — relaxed/lenient binding just leaves
+// the field at its Java default. No exception, no log line, app starts normally.
+@ConfigurationProperties(prefix = "payment.stripe")
+public class StripeProperties {
+    private int timeoutMs;   // missing key in application.yml -> stays 0, quietly
+}
+```
+The instinct to treat `@ConfigurationProperties`'s silence as a plus ("it can work well") gets this backwards — a silently-defaulted `timeoutMs = 0` can mean every Stripe call times out instantly in production, with nothing at startup to flag it. `@Value`'s fail-fast behavior is actually the safer default in isolation. The fix that keeps `@ConfigurationProperties`'s other benefits (grouping, type-safety, testability) while closing this gap is `@Validated` on the properties class plus `@NotNull`/`@Min(1)` on the fields — that turns a missing/invalid value back into a startup failure instead of a silent one. Reflex: whenever comparing two config-binding approaches, ask "does this fail loudly or silently?" before anything else — silent failure is nearly always the more dangerous property.
 
 ---
 
